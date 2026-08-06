@@ -1,14 +1,14 @@
 'use client';
 
 // ============================================================
-// PSMI System — Login Page
+// PSMI System — High-Contrast Executive Login Page
 // ============================================================
 
 import { useState, useEffect } from 'react';
 import { signIn } from '@/actions/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Zap, Lock, Mail } from 'lucide-react';
+import { Eye, EyeOff, Zap, Lock, Mail, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,7 +19,12 @@ export default function LoginPage() {
   // Redirect to set-password if accepting an invitation or recovery link
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=recovery'))) {
+    if (
+      hash &&
+      (hash.includes('type=invite') ||
+        hash.includes('type=signup') ||
+        hash.includes('type=recovery'))
+    ) {
       router.push(`/set-password${hash}`);
     }
   }, [router]);
@@ -36,77 +41,59 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-surface-950 via-surface-900 to-brand-950 relative overflow-hidden">
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-brand-500/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-brand-600/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-brand-500/5 rounded-full blur-3xl" />
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden font-sans selection:bg-indigo-500 selection:text-white">
+      {/* Ambient background glow effects */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-[128px]" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-600/20 rounded-full blur-[128px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[160px]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-md px-4">
-        {/* Logo / Brand
-          ─────────────────────────────────────────────────
-          To use your company logo:
-          1. Place your logo file at /public/logo.svg (or .png)
-          2. Uncomment the <Image> tag below
-          3. Remove or comment out the <Zap> icon fallback
-          ───────────────────────────────────────────────── */}
+      <div className="relative z-10 w-full max-w-md px-5 py-8">
+        {/* Brand Header */}
         <div className="text-center mb-8 animate-fade-in">
-          {/* Option A: Icon placeholder (default) */}
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-brand-500 to-brand-700 rounded-2xl shadow-brand mb-4">
-            <Zap className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center p-3.5 bg-indigo-600/20 border border-indigo-500/30 rounded-2xl shadow-lg shadow-indigo-500/20 mb-4">
+            <Zap className="w-8 h-8 text-indigo-400 fill-indigo-400/20" />
           </div>
 
-          {/* Option B: Custom company logo — uncomment below
-          <div className="mb-4">
-            <Image
-              src="/logo.svg"
-              alt="Company Logo"
-              width={64}
-              height={64}
-              className="mx-auto rounded-2xl"
-              priority
-            />
-          </div>
-          */}
-
-          <h1 className="text-3xl font-bold text-white">PSMI</h1>
-          <p className="text-surface-400 mt-1">
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">
+            PSMI
+          </h1>
+          <p className="text-sm font-medium text-slate-400 mt-1">
             Power Station Management Inventory
           </p>
         </div>
 
-        {/* Login Card */}
-        <div className="glass-card-elevated p-8 animate-slide-up">
-          <h2 className="text-xl font-semibold text-white mb-6">
+        {/* High-Contrast Glass Card */}
+        <div className="bg-slate-900/90 backdrop-blur-2xl border border-slate-800 shadow-2xl rounded-2xl p-8 transition-all">
+          <h2 className="text-xl font-bold text-white mb-6">
             Welcome back
           </h2>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm animate-scale-in">
+            <div className="mb-5 p-3.5 bg-red-500/15 border border-red-500/30 rounded-xl text-red-300 text-xs font-medium animate-scale-in">
               {error}
             </div>
           )}
 
           <form action={handleSubmit} className="space-y-5">
-            {/* Email */}
+            {/* Email Address */}
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-surface-300 mb-1.5"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2"
               >
                 Email Address
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   id="email"
                   name="email"
                   type="email"
                   required
                   placeholder="you@example.com"
-                  className="input pl-10 bg-surface-800/50 border-surface-700 text-white placeholder:text-surface-500"
+                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-950/80 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all font-medium"
                 />
               </div>
             </div>
@@ -115,24 +102,25 @@ export default function LoginPage() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-surface-300 mb-1.5"
+                className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2"
               >
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   required
                   placeholder="••••••••"
-                  className="input pl-10 pr-10 bg-surface-800/50 border-surface-700 text-white placeholder:text-surface-500"
+                  className="w-full pl-10 pr-10 py-2.5 text-sm bg-slate-950/80 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all font-medium font-mono"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300 transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors p-1"
+                  tabIndex={-1}
                 >
                   {showPassword ? (
                     <EyeOff className="w-4 h-4" />
@@ -143,57 +131,39 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Submit */}
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full py-3 text-base"
+              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 transition-all disabled:opacity-50 text-sm flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
               {loading ? (
-                <span className="flex items-center gap-2">
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Signing in…
-                </span>
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Signing in…</span>
+                </>
               ) : (
                 'Sign In'
               )}
             </button>
           </form>
 
-          {/* Forgot password / invite note */}
-          <div className="mt-6 text-center space-y-2">
+          {/* Links & Information */}
+          <div className="mt-6 text-center space-y-2 pt-2 border-t border-slate-800/80">
             <Link
-              href="/auth/reset-password"
-              className="text-sm text-brand-400 hover:text-brand-300 font-medium transition-colors"
+              href="/reset-password"
+              className="inline-block text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
             >
               Forgot your password?
             </Link>
-            <p className="text-surface-500 text-xs">
+            <p className="text-slate-400 text-xs leading-relaxed">
               Access is by invitation only. Contact your administrator.
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <p className="text-center text-surface-600 text-xs mt-6">
+        <p className="text-center text-slate-500 text-xs mt-8">
           © 2026 PSMI System. All rights reserved.
         </p>
       </div>
