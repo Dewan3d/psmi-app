@@ -167,26 +167,35 @@ export async function getLowStockAlerts(): Promise<{
     return { data: [], error: prodError.message };
   }
 
-  // Get warehouse stock counts by SKU
-  const { data: units, error: unitsError } = await supabase
+  // Get all inventory units to check count and ever-inbounded status
+  const { data: allUnits, error: unitsError } = await supabase
     .from('inventory_units')
-    .select('sku')
-    .eq('status', 'IN_WAREHOUSE');
+    .select('sku, status');
 
   if (unitsError) {
     return { data: [], error: unitsError.message };
   }
 
-  // Count per SKU
-  const skuCounts: Record<string, number> = {};
-  for (const unit of units || []) {
-    skuCounts[unit.sku] = (skuCounts[unit.sku] || 0) + 1;
+  // Track SKUs that have ever been inbounded & current warehouse stock count
+  const everInboundedSkus = new Set<string>();
+  const skuWarehouseCounts: Record<string, number> = {};
+
+  for (const unit of allUnits || []) {
+    everInboundedSkus.add(unit.sku);
+    if (unit.status === 'IN_WAREHOUSE') {
+      skuWarehouseCounts[unit.sku] = (skuWarehouseCounts[unit.sku] || 0) + 1;
+    }
   }
 
-  // Find low stock
+  // Find low stock ONLY for SKUs that have been inbounded at least once
   const alerts: LowStockAlert[] = [];
   for (const product of products || []) {
-    const count = skuCounts[product.sku] || 0;
+    // Skip brand new SKUs that have never been inbounded
+    if (!everInboundedSkus.has(product.sku)) {
+      continue;
+    }
+
+    const count = skuWarehouseCounts[product.sku] || 0;
     if (count < product.low_stock_threshold) {
       alerts.push({
         sku: product.sku,
