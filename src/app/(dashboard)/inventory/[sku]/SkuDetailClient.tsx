@@ -41,7 +41,7 @@ type UnitItem = {
   locations?: { name: string; type: string };
 };
 
-const ITEMS_PER_PAGE = 20;
+const ITEMS_PER_PAGE = 10;
 
 // ── SVG Barcode Generator ─────────────────────────────────────
 function SvgBarcode({ value, label }: { value: string; label?: string }) {

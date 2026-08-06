@@ -23,6 +23,7 @@ import {
   Upload,
   Hash,
   ChevronRight,
+  ChevronLeft,
   FileSpreadsheet,
   Camera,
   Scan,
@@ -579,12 +580,18 @@ function NewInboundModal({
 }
 
 // ── Main Page ─────────────────────────────────────────────────
+const ITEMS_PER_PAGE = 10;
+
 export default function InboundPage() {
   const [transactions, setTransactions] = useState<InboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE) || 1;
+  const paginatedTxns = transactions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   async function fetchTransactions() {
     setLoading(true);
@@ -726,7 +733,7 @@ export default function InboundPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {transactions.map((txn) => (
+                {paginatedTxns.map((txn) => (
                   <tr key={txn.id} className="hover:bg-slate-50/70 transition-colors group">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
@@ -811,6 +818,43 @@ export default function InboundPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* ── 10-Item Pagination Controls ───────────────────────── */}
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing{' '}
+                <strong className="text-slate-800">
+                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, transactions.length)}
+                </strong>{' '}
+                to{' '}
+                <strong className="text-slate-800">
+                  {Math.min(currentPage * ITEMS_PER_PAGE, transactions.length)}
+                </strong>{' '}
+                of <strong className="text-slate-800">{transactions.length}</strong> receipts
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <span className="px-3 py-1 text-xs font-semibold text-slate-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

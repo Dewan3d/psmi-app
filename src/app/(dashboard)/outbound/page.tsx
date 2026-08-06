@@ -27,6 +27,7 @@ import {
   Upload,
   AlertTriangle,
   ChevronRight,
+  ChevronLeft,
   Trash2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -598,6 +599,8 @@ function NewOutboundModal({
 }
 
 // ── Main Page ─────────────────────────────────────────────────
+const ITEMS_PER_PAGE = 10;
+
 export default function OutboundPage() {
   const [transactions, setTransactions] = useState<OutboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -605,6 +608,10 @@ export default function OutboundPage() {
   const [showNewModal, setShowNewModal] = useState(false);
   const [verifyTarget, setVerifyTarget] = useState<{ id: string; tracking: string | null } | null>(null);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE) || 1;
+  const paginatedTxns = transactions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   async function fetchTransactions() {
     setLoading(true);
@@ -737,7 +744,7 @@ export default function OutboundPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {transactions.map((txn) => {
+                {paginatedTxns.map((txn) => {
                   const route = routeConfig[txn.route] || { label: txn.route, color: 'bg-slate-100 text-slate-700', icon: null };
                   const needsVerify = !txn.verified && (txn.route === 'B2B' || txn.route === 'B2C');
                   return (
@@ -822,6 +829,43 @@ export default function OutboundPage() {
                 })}
               </tbody>
             </table>
+
+            {/* ── 10-Item Pagination Controls ───────────────────────── */}
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing{' '}
+                <strong className="text-slate-800">
+                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, transactions.length)}
+                </strong>{' '}
+                to{' '}
+                <strong className="text-slate-800">
+                  {Math.min(currentPage * ITEMS_PER_PAGE, transactions.length)}
+                </strong>{' '}
+                of <strong className="text-slate-800">{transactions.length}</strong> orders
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <span className="px-3 py-1 text-xs font-semibold text-slate-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -4,7 +4,7 @@
 // PSMI System — Inventory Catalogue Client Component
 // ============================================================
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -15,9 +15,14 @@ import {
   X,
   Loader2,
   Image as ImageIcon,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { StockSummary } from '@/lib/types/database';
 import { createProduct } from '@/actions/products';
+
+const ITEMS_PER_PAGE = 10;
 
 export default function InventoryCatalogueClient({
   initialStockSummary,
@@ -27,6 +32,10 @@ export default function InventoryCatalogueClient({
   const router = useRouter();
   const [stockSummary, setStockSummary] = useState<StockSummary[]>(initialStockSummary);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  // Search & Pagination State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Form states
   const [sku, setSku] = useState('');
@@ -39,6 +48,29 @@ export default function InventoryCatalogueClient({
 
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  // Filtered SKUs
+  const filteredStock = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return stockSummary;
+    return stockSummary.filter(
+      (item) =>
+        item.sku.toLowerCase().includes(query) ||
+        item.model_name.toLowerCase().includes(query)
+    );
+  }, [stockSummary, searchQuery]);
+
+  // Pagination calculation
+  const totalPages = Math.ceil(filteredStock.length / ITEMS_PER_PAGE) || 1;
+  const paginatedStock = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredStock.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredStock, currentPage]);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1); // Reset to page 1 on search
+  };
 
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +105,7 @@ export default function InventoryCatalogueClient({
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Header ───────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
             Inventory Catalogue
@@ -84,7 +116,7 @@ export default function InventoryCatalogueClient({
         </div>
         <button
           onClick={() => setIsAddOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 cursor-pointer"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
           Add New Product
@@ -92,14 +124,28 @@ export default function InventoryCatalogueClient({
       </div>
 
       {/* ── Content Grid ─────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-800">
-            Stock Summary Table
-          </h2>
-          <span className="text-xs text-slate-400 font-medium">
-            {stockSummary.length} product(s) registered
-          </span>
+      <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden border border-slate-100">
+        <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <h2 className="text-base font-semibold text-slate-800 shrink-0">
+              Stock Summary Table
+            </h2>
+            <span className="text-xs text-slate-400 font-medium shrink-0">
+              {filteredStock.length} product(s)
+            </span>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search SKU or Model..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+              className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+          </div>
         </div>
 
         {stockSummary.length === 0 ? (
@@ -115,118 +161,173 @@ export default function InventoryCatalogueClient({
               + Create your first SKU
             </button>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    Model / Item Name
-                  </th>
-                  <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    SKU
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    In Warehouse
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    In Branch
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    In Transit
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    Reserved
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    Total Available
-                  </th>
-                  <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {stockSummary.map((item) => {
-                  const availableCount = item.in_warehouse + item.in_branch;
-                  return (
-                    <tr
-                      key={item.sku}
-                      className="hover:bg-slate-50/70 transition-colors"
-                    >
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                            <Boxes className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <Link
-                              href={`/inventory/${encodeURIComponent(item.sku)}`}
-                              className="text-sm font-semibold text-slate-800 hover:text-indigo-600 transition-colors"
-                            >
-                              {item.model_name}
-                            </Link>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-700 font-mono">
-                          <Barcode className="w-3.5 h-3.5" />
-                          {item.sku}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-sm font-semibold text-slate-700">
-                          {item.in_warehouse}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-sm font-semibold text-slate-700">
-                          {item.in_branch}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span
-                          className={`text-sm font-semibold ${
-                            item.in_transit > 0
-                              ? 'text-blue-600'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          {item.in_transit}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span
-                          className={`text-sm font-semibold ${
-                            item.reserved > 0
-                              ? 'text-amber-600'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          {item.reserved}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className="text-sm font-bold text-slate-900">
-                          {availableCount}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <Link
-                          href={`/inventory/${encodeURIComponent(item.sku)}`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          View Details
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        ) : filteredStock.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-sm font-medium text-slate-500">No products match &quot;{searchQuery}&quot;</p>
+            <button
+              onClick={() => setSearchQuery('')}
+              className="mt-2 text-xs text-indigo-600 hover:underline"
+            >
+              Clear search filter
+            </button>
           </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      Model / Item Name
+                    </th>
+                    <th className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      SKU
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      In Warehouse
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      In Branch
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      In Transit
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      Reserved
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      Total Available
+                    </th>
+                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {paginatedStock.map((item) => {
+                    const availableCount = item.in_warehouse + item.in_branch;
+                    return (
+                      <tr
+                        key={item.sku}
+                        className="hover:bg-slate-50/70 transition-colors"
+                      >
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                              <Boxes className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <Link
+                                href={`/inventory/${encodeURIComponent(item.sku)}`}
+                                className="text-sm font-semibold text-slate-800 hover:text-indigo-600 transition-colors"
+                              >
+                                {item.model_name}
+                              </Link>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-100 text-slate-700 font-mono">
+                            <Barcode className="w-3.5 h-3.5" />
+                            {item.sku}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className="text-sm font-semibold text-slate-700">
+                            {item.in_warehouse}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className="text-sm font-semibold text-slate-700">
+                            {item.in_branch}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span
+                            className={`text-sm font-semibold ${
+                              item.in_transit > 0
+                                ? 'text-blue-600'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {item.in_transit}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span
+                            className={`text-sm font-semibold ${
+                              item.reserved > 0
+                                ? 'text-amber-600'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {item.reserved}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className="text-sm font-bold text-slate-900">
+                            {availableCount}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <Link
+                            href={`/inventory/${encodeURIComponent(item.sku)}`}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            View Details
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── 10-Item Pagination Controls ───────────────────────── */}
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing{' '}
+                <strong className="text-slate-800">
+                  {Math.min(
+                    (currentPage - 1) * ITEMS_PER_PAGE + 1,
+                    filteredStock.length
+                  )}
+                </strong>{' '}
+                to{' '}
+                <strong className="text-slate-800">
+                  {Math.min(
+                    currentPage * ITEMS_PER_PAGE,
+                    filteredStock.length
+                  )}
+                </strong>{' '}
+                of <strong className="text-slate-800">{filteredStock.length}</strong> SKUs
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <span className="px-3 py-1 text-xs font-semibold text-slate-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
