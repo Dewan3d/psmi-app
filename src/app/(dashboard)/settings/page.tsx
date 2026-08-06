@@ -1262,10 +1262,6 @@ export default function SettingsPage() {
           {/* ── CARD-BASED SETTINGS OVERVIEW HUB ───────────────────────────── */}
           {activeSection === 'overview' && (
             <div className="space-y-4 animate-fade-in">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-                Select Configuration Module
-              </h2>
-
               <div className="grid grid-cols-1 gap-4">
                 {/* CARD 1: Product SKU Catalogue */}
                 <div
