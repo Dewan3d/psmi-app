@@ -806,7 +806,7 @@ export default function InboundPage() {
                           <button
                             onClick={() => handleDelete(txn.id)}
                             disabled={isDeleteLoading}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500 hover:bg-red-55 rounded-lg transition-colors"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors"
                             title="Delete pending receipt"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

@@ -8,7 +8,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
-import { LocationStock, LowStockAlert, UnitStatus } from '@/lib/types/database';
+import { LocationStock, LowStockAlert, ProductCategory, StockSummary, UnitStatus } from '@/lib/types/database';
 
 export async function getInventoryByLocation(): Promise<{
   data: LocationStock[];
@@ -259,4 +259,147 @@ export async function getRecentActivity(
   }));
 
   return { data: activities, error: null };
+}
+
+// ── Stock By Category (for dashboard infographics) ───────────
+export async function getStockByCategory(): Promise<{
+  data: {
+    totals: Record<UnitStatus, number>;
+    by_category: {
+      category: ProductCategory;
+      count: number;
+      status_breakdown: Record<UnitStatus, number>;
+    }[];
+    by_model: {
+      sku: string;
+      model_name: string;
+      category_badge: ProductCategory;
+      total: number;
+      low_stock_threshold: number;
+      status_breakdown: Record<UnitStatus, number>;
+    }[];
+  };
+  error: string | null;
+}> {
+  const supabase = (await createClient()) as any;
+
+  // Get all products with their category badge
+  const { data: products, error: prodError } = await supabase
+    .from('products')
+    .select('sku, model_name, category_badge, low_stock_threshold');
+
+  if (prodError) {
+    return {
+      data: { totals: {} as any, by_category: [], by_model: [] },
+      error: prodError.message,
+    };
+  }
+
+  // Get all inventory units (excluding SOLD)
+  const { data: units, error: unitsError } = await supabase
+    .from('inventory_units')
+    .select('sku, status')
+    .neq('status', 'SOLD');
+
+  if (unitsError) {
+    return {
+      data: { totals: {} as any, by_category: [], by_model: [] },
+      error: unitsError.message,
+    };
+  }
+
+  // Build product lookup
+  const productMap = new Map<string, {
+    model_name: string;
+    category_badge: ProductCategory;
+    low_stock_threshold: number;
+  }>();
+  for (const p of products || []) {
+    productMap.set(p.sku, {
+      model_name: p.model_name,
+      category_badge: p.category_badge || 'POWER_STATION',
+      low_stock_threshold: p.low_stock_threshold,
+    });
+  }
+
+  // Initialize status keys
+  const statusKeys: UnitStatus[] = [
+    'IN_WAREHOUSE', 'RESERVED', 'IN_TRANSIT', 'IN_BRANCH',
+    'SOLD', 'DAMAGED_REPAIR', 'PENDING_SERIAL',
+  ];
+  const emptyBreakdown = (): Record<UnitStatus, number> => {
+    const b: any = {};
+    for (const s of statusKeys) b[s] = 0;
+    return b;
+  };
+
+  // Aggregate totals
+  const totals = emptyBreakdown();
+
+  // Aggregate by category
+  const categoryMap = new Map<ProductCategory, {
+    count: number;
+    status_breakdown: Record<UnitStatus, number>;
+  }>();
+  for (const cat of ['POWER_STATION', 'SHS', 'ACCESSORIES'] as ProductCategory[]) {
+    categoryMap.set(cat, { count: 0, status_breakdown: emptyBreakdown() });
+  }
+
+  // Aggregate by model
+  const modelMap = new Map<string, {
+    sku: string;
+    model_name: string;
+    category_badge: ProductCategory;
+    total: number;
+    low_stock_threshold: number;
+    status_breakdown: Record<UnitStatus, number>;
+  }>();
+  for (const p of products || []) {
+    modelMap.set(p.sku, {
+      sku: p.sku,
+      model_name: p.model_name,
+      category_badge: p.category_badge || 'POWER_STATION',
+      total: 0,
+      low_stock_threshold: p.low_stock_threshold,
+      status_breakdown: emptyBreakdown(),
+    });
+  }
+
+  // Process each unit
+  for (const unit of units || []) {
+    const product = productMap.get(unit.sku);
+    if (!product) continue;
+
+    const status = unit.status as UnitStatus;
+
+    // Global totals
+    totals[status]++;
+
+    // Category aggregation
+    const catEntry = categoryMap.get(product.category_badge);
+    if (catEntry) {
+      catEntry.count++;
+      catEntry.status_breakdown[status]++;
+    }
+
+    // Model aggregation
+    const modelEntry = modelMap.get(unit.sku);
+    if (modelEntry) {
+      modelEntry.total++;
+      modelEntry.status_breakdown[status]++;
+    }
+  }
+
+  return {
+    data: {
+      totals,
+      by_category: Array.from(categoryMap.entries()).map(([category, data]) => ({
+        category,
+        count: data.count,
+        status_breakdown: data.status_breakdown,
+      })),
+      by_model: Array.from(modelMap.values()),
+    },
+    error: null,
+  };
 }

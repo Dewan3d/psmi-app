@@ -156,10 +156,21 @@ function VerificationPanel({
               </div>
               <div>
                 {docs[key] ? (
-                  <a href={docs[key]} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-indigo-600 hover:underline">View ↗</a>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Attached
+                    </span>
+                    <a
+                      href={docs[key]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
+                    >
+                      View Doc ↗
+                    </a>
+                  </div>
                 ) : (
-                  <label className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${uploading[key] ? 'bg-slate-100 text-slate-400' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>
+                  <label className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${uploading[key] ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'}`}>
                     {uploading[key] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {uploading[key] ? 'Uploading…' : 'Upload'}
                     <input
@@ -316,11 +327,11 @@ function NewOutboundModal({
                     onClick={() => setRoute(r)}
                     className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${
                       route === r
-                        ? 'border-indigo-500 bg-indigo-50'
+                        ? 'border-indigo-500 bg-indigo-50/50'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
-                    <div className={`p-2.5 rounded-xl ${route === r ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                    <div className={`p-2.5 rounded-xl ${route === r ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-indigo-950 font-bold'}`}>
                       {routeConfig[r].icon}
                     </div>
                     <span className="text-xs font-semibold text-slate-700">{r}</span>
@@ -487,7 +498,7 @@ function NewOutboundModal({
                               className={`text-xs font-mono px-2.5 py-1 rounded-lg border transition-colors ${
                                 selectedSerials.includes(sn)
                                   ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed'
-                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300'
+                                  : 'bg-slate-50 border-slate-200 text-indigo-950 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 font-medium'
                               }`}
                             >
                               {selectedSerials.includes(sn) ? '✓ ' : ''}{sn}
@@ -816,7 +827,7 @@ export default function OutboundPage() {
                             <button
                               onClick={() => handleDelete(txn.id)}
                               disabled={isDeleteLoading}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors"
                               title="Delete/Cancel outbound"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

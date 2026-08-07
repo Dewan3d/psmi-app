@@ -28,13 +28,15 @@ import {
   ChevronRight,
   ArrowRight,
   Sparkles,
+  Ban,
+  Search,
 } from 'lucide-react';
 import { createProduct, updateProduct, deleteProduct, listProducts } from '@/actions/products';
 import { createLocation, updateLocation, listLocations } from '@/actions/locations';
 import { listUsers, updateUserRole, assignUserLocation, inviteUser } from '@/actions/users';
 import { getSession } from '@/actions/auth';
 import { listInboundTransactions, deleteInboundTransaction } from '@/actions/inbound';
-import { UserRole } from '@/lib/types/database';
+import { UserRole, ProductCategory } from '@/lib/types/database';
 
 type Product = {
   sku: string;
@@ -42,6 +44,7 @@ type Product = {
   description: string | null;
   low_stock_threshold: number;
   is_serialized: boolean;
+  category_badge: ProductCategory;
   created_at: string;
 };
 
@@ -73,14 +76,17 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
   const [description, setDescription] = useState('');
   const [threshold, setThreshold] = useState('10');
   const [isSerialized, setIsSerialized] = useState(true);
+  const [categoryBadge, setCategoryBadge] = useState<ProductCategory>('POWER_STATION');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [editingSku, setEditingSku] = useState<string | null>(null);
   const [editModelName, setEditModelName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editThreshold, setEditThreshold] = useState('');
+  const [editCategoryBadge, setEditCategoryBadge] = useState<ProductCategory>('POWER_STATION');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
 
   async function loadProducts() {
     const result = await listProducts();
@@ -91,8 +97,18 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     loadProducts();
   }, []);
 
-  const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE) || 1;
-  const paginatedProducts = products.slice(
+  const filteredProducts = products.filter((p) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      p.sku.toLowerCase().includes(q) ||
+      p.model_name.toLowerCase().includes(q) ||
+      (p.description && p.description.toLowerCase().includes(q))
+    );
+  });
+
+  const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE) || 1;
+  const paginatedProducts = filteredProducts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -107,6 +123,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         description: description || undefined,
         low_stock_threshold: parseInt(threshold, 10) || 10,
         is_serialized: isSerialized,
+        category_badge: categoryBadge,
       });
       if (result.error) {
         setError(result.error);
@@ -117,6 +134,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       setDescription('');
       setThreshold('10');
       setIsSerialized(true);
+      setCategoryBadge('POWER_STATION');
       setShowForm(false);
       await loadProducts();
     });
@@ -127,6 +145,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     setEditModelName(p.model_name);
     setEditDescription(p.description || '');
     setEditThreshold(String(p.low_stock_threshold));
+    setEditCategoryBadge(p.category_badge || 'POWER_STATION');
   }
 
   function handleSaveEdit(skuToEdit: string) {
@@ -135,6 +154,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         model_name: editModelName,
         description: editDescription,
         low_stock_threshold: parseInt(editThreshold, 10) || 10,
+        category_badge: editCategoryBadge,
       });
       setEditingSku(null);
       await loadProducts();
@@ -170,14 +190,40 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
             </p>
           </div>
         </div>
-        {isAdmin && (
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" /> New SKU
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Filter SKU or model..."
+              className="pl-8 pr-7 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-40 sm:w-56"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setCurrentPage(1);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm flex-shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" /> New SKU
+            </button>
+          )}
+        </div>
       </div>
 
       {/* New SKU form */}
@@ -225,6 +271,22 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Category Badge *
+                </label>
+                <select
+                  value={categoryBadge}
+                  onChange={(e) => setCategoryBadge(e.target.value as ProductCategory)}
+                  className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                >
+                  <option value="POWER_STATION">⚡ Power Station</option>
+                  <option value="SHS">☀️ Solar Home System (SHS)</option>
+                  <option value="ACCESSORIES">🔌 Accessories</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -317,7 +379,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                 </div>
 
                 {/* Edit Form Inputs */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
                       Model Name
@@ -342,6 +404,20 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Category Badge
+                    </label>
+                    <select
+                      value={editCategoryBadge}
+                      onChange={(e) => setEditCategoryBadge(e.target.value as ProductCategory)}
+                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    >
+                      <option value="POWER_STATION">⚡ Power Station</option>
+                      <option value="SHS">☀️ SHS</option>
+                      <option value="ACCESSORIES">🔌 Accessories</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
                       Low Stock Alert
                     </label>
                     <input
@@ -355,72 +431,101 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+              <div className="space-y-2">
+                {/* Line 1: Name + SKU + Non-Serialized Icon (Left) | Category Badge (Right) */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 min-w-0">
                     <p className="text-sm font-semibold text-slate-800">
                       {p.model_name}
                     </p>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold rounded-md bg-slate-100 text-slate-700 font-mono">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-md bg-slate-100 text-slate-700 font-mono">
                       {p.sku}
                     </span>
                     {p.is_serialized === false && (
-                      <span className="text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-100 px-1.5 py-0.5 rounded-md">
-                        Non-Serialized
+                      <span
+                        className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-50 text-red-600 border border-red-200/80 shadow-xs cursor-help"
+                        title="Non-Serialized Item (No Serial Number Tracking)"
+                      >
+                        <Ban className="w-3 h-3" />
                       </span>
                     )}
                   </div>
-                  {p.description ? (
-                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                      {p.description}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic mt-0.5">
-                      No description provided
-                    </p>
+
+                  {/* Stock Type / Category Badge (Top Right) */}
+                  {p.category_badge && (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border flex-shrink-0 ${
+                      p.category_badge === 'POWER_STATION'
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                        : p.category_badge === 'SHS'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                        : 'bg-amber-50 text-amber-700 border-amber-100'
+                    }`}>
+                      {p.category_badge === 'POWER_STATION' ? '⚡ Power Station'
+                        : p.category_badge === 'SHS' ? '☀️ SHS'
+                        : '🔌 Accessories'}
+                    </span>
                   )}
                 </div>
-                <span className="text-xs font-medium text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1">
-                  Alert at {p.low_stock_threshold}
-                </span>
-                {isAdmin && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleEdit(p)}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                      title="Edit SKU & Description"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    {deleteConfirm === p.sku ? (
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-red-600 font-medium">
-                          Confirm?
-                        </span>
-                        <button
-                          onClick={() => handleDelete(p.sku)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirm(null)}
-                          className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+
+                {/* Line 2: Description (Left) | Alert Badge + Actions (Right) */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    {p.description ? (
+                      <p className="text-xs text-slate-500 truncate leading-relaxed">
+                        {p.description}
+                      </p>
                     ) : (
-                      <button
-                        onClick={() => setDeleteConfirm(p.sku)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        title="Delete SKU"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <p className="text-xs text-slate-400 italic">
+                        No description provided
+                      </p>
                     )}
                   </div>
-                )}
+
+                  {/* Alert Badge + Action Buttons (Bottom Right) */}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-xs font-medium text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1">
+                      Alert at {p.low_stock_threshold}
+                    </span>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleEdit(p)}
+                          className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/70 border border-indigo-100 rounded-lg transition-colors cursor-pointer"
+                          title="Edit SKU & Description"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {deleteConfirm === p.sku ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-red-600 font-medium">
+                              Confirm?
+                            </span>
+                            <button
+                              onClick={() => handleDelete(p.sku)}
+                              className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-lg"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirm(p.sku)}
+                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors cursor-pointer"
+                            title="Delete SKU"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -750,7 +855,7 @@ function LocationSection({ isAdmin }: { isAdmin: boolean }) {
                 {isAdmin && (
                   <button
                     onClick={() => handleEdit(loc)}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                    className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100/70 border border-indigo-100 rounded-lg transition-colors cursor-pointer"
                     title="Edit Location Name & Details"
                   >
                     <Edit2 className="w-4 h-4" />
@@ -937,6 +1042,13 @@ function UserSection({
                   <option value="WAREHOUSE_MANAGER">Warehouse Manager</option>
                   <option value="ADMIN">Admin</option>
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                  {inviteRole === 'ADMIN'
+                    ? '🛡️ Full access: SKU cataloguing, locations, user permissions, audit logs.'
+                    : inviteRole === 'WAREHOUSE_MANAGER'
+                    ? '📦 Operations: Inbound receiving, serial uploads, outbound transits.'
+                    : '🏪 Branch access: View stock, receive transfers, delivery notes.'}
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -1161,7 +1273,7 @@ function AccessoryDeletionSection() {
               <button
                 onClick={() => handleDelete(txn.id)}
                 disabled={isDeleting}
-                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-xl transition-colors cursor-pointer"
                 title="Delete accessory receipt"
               >
                 <Trash2 className="w-4 h-4" />

@@ -170,7 +170,7 @@ export async function getStockSummary(): Promise<{
   // Get all products
   const { data: products, error: productsError } = await supabase
     .from('products')
-    .select('sku, model_name');
+    .select('sku, model_name, category_badge');
 
   if (productsError) {
     return { data: [], error: productsError.message };
@@ -193,6 +193,7 @@ export async function getStockSummary(): Promise<{
     summaryMap.set(product.sku, {
       sku: product.sku,
       model_name: product.model_name,
+      category_badge: product.category_badge || 'POWER_STATION',
       total: 0,
       in_warehouse: 0,
       reserved: 0,

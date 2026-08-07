@@ -18,8 +18,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Zap,
+  Sun,
+  Plug,
 } from 'lucide-react';
-import { StockSummary } from '@/lib/types/database';
+import { StockSummary, ProductCategory } from '@/lib/types/database';
 import { createProduct } from '@/actions/products';
 
 const ITEMS_PER_PAGE = 10;
@@ -33,8 +36,9 @@ export default function InventoryCatalogueClient({
   const [stockSummary, setStockSummary] = useState<StockSummary[]>(initialStockSummary);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
-  // Search & Pagination State
+  // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<ProductCategory | 'ALL'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
 
   // Form states
@@ -52,13 +56,27 @@ export default function InventoryCatalogueClient({
   // Filtered SKUs
   const filteredStock = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return stockSummary;
-    return stockSummary.filter(
-      (item) =>
+    return stockSummary.filter((item) => {
+      if (activeCategory !== 'ALL' && item.category_badge !== activeCategory) {
+        return false;
+      }
+      if (!query) return true;
+      return (
         item.sku.toLowerCase().includes(query) ||
         item.model_name.toLowerCase().includes(query)
-    );
-  }, [stockSummary, searchQuery]);
+      );
+    });
+  }, [stockSummary, searchQuery, activeCategory]);
+
+  // Compute category counts
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: stockSummary.length };
+    for (const item of stockSummary) {
+      const badge = item.category_badge || 'POWER_STATION';
+      counts[badge] = (counts[badge] || 0) + 1;
+    }
+    return counts;
+  }, [stockSummary]);
 
   // Pagination calculation
   const totalPages = Math.ceil(filteredStock.length / ITEMS_PER_PAGE) || 1;
@@ -146,6 +164,44 @@ export default function InventoryCatalogueClient({
               className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
           </div>
+        </div>
+
+        {/* Category Filter Tabs */}
+        <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap gap-2 bg-slate-50/50">
+          {[
+            { key: 'ALL', label: 'All Items', icon: Boxes, accent: 'text-slate-500', activeClass: 'bg-indigo-600 text-white' },
+            { key: 'POWER_STATION', label: 'Power Stations', icon: Zap, accent: 'text-indigo-500', activeClass: 'bg-indigo-600 text-white' },
+            { key: 'SHS', label: 'SHS', icon: Sun, accent: 'text-emerald-500', activeClass: 'bg-emerald-600 text-white' },
+            { key: 'ACCESSORIES', label: 'Accessories', icon: Plug, accent: 'text-amber-500', activeClass: 'bg-amber-500 text-white' },
+          ].map((tab) => {
+            const isActive = activeCategory === tab.key;
+            const count = categoryCounts[tab.key] || 0;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  setActiveCategory(tab.key as any);
+                  setCurrentPage(1);
+                }}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
+                  isActive
+                    ? `${tab.activeClass} shadow-sm`
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : tab.accent}`} />
+                {tab.label}
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {stockSummary.length === 0 ? (

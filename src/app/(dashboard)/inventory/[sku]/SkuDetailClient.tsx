@@ -506,6 +506,7 @@ export default function SkuDetailClient({
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Location</th>
                 <th className="py-3 px-4">Receive Date</th>
+                <th className="py-3 px-4 text-right">Age / FIFO</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -513,6 +514,15 @@ export default function SkuDetailClient({
                 paginatedUnits.map((unit, index) => {
                   const cfg = statusConfig[unit.status as UnitStatus] || statusConfig.IN_WAREHOUSE;
                   const globalIndex = startIndex + index + 1;
+
+                  const ageDays = Math.max(0, Math.floor((Date.now() - new Date(unit.upload_date).getTime()) / (1000 * 60 * 60 * 24)));
+                  const fifoBadge =
+                    ageDays > 90
+                      ? { label: `${ageDays}d (Alert)`, color: 'bg-rose-50 text-rose-700 border-rose-200' }
+                      : ageDays > 30
+                      ? { label: `${ageDays}d`, color: 'bg-amber-50 text-amber-700 border-amber-200' }
+                      : { label: `${ageDays}d`, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+
                   return (
                     <tr key={unit.serial_number} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-4 text-slate-400 font-mono">{globalIndex}</td>
@@ -543,12 +553,17 @@ export default function SkuDetailClient({
                       <td className="py-3 px-4 text-slate-500 font-mono">
                         {new Date(unit.upload_date).toLocaleDateString()}
                       </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border ${fifoBadge.color}`}>
+                          {fifoBadge.label}
+                        </span>
+                      </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400">
+                  <td colSpan={6} className="py-8 text-center text-slate-400">
                     No serial numbers found matching filters.
                   </td>
                 </tr>

@@ -18,6 +18,8 @@ export type TransactionType = 'INBOUND' | 'OUTBOUND';
 
 export type OutboundRoute = 'TB' | 'B2B' | 'B2C';
 
+export type ProductCategory = 'POWER_STATION' | 'SHS' | 'ACCESSORIES';
+
 export type UserRole = 'ADMIN' | 'WAREHOUSE_MANAGER' | 'BRANCH_STAFF';
 
 export type LocationType = 'WAREHOUSE' | 'BRANCH';
@@ -48,6 +50,7 @@ export interface Product {
   description: string | null;
   low_stock_threshold: number;
   is_serialized: boolean;
+  category_badge: ProductCategory;
   image_url?: string | null;
   barcode?: string | null;
   created_at: string;
@@ -126,6 +129,7 @@ export interface TransactionWithDetails extends Transaction {
 export interface StockSummary {
   sku: string;
   model_name: string;
+  category_badge: ProductCategory;
   total: number;
   in_warehouse: number;
   reserved: number;
@@ -241,6 +245,7 @@ export interface Database {
       outbound_route: OutboundRoute;
       user_role: UserRole;
       location_type: LocationType;
+      product_category: ProductCategory;
     };
   };
 }

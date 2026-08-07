@@ -5,7 +5,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
-import { Product } from '@/lib/types/database';
+import { Product, ProductCategory } from '@/lib/types/database';
 
 export async function createProduct(data: {
   sku: string;
@@ -13,6 +13,7 @@ export async function createProduct(data: {
   description?: string;
   low_stock_threshold?: number;
   is_serialized?: boolean;
+  category_badge?: ProductCategory;
   image_url?: string;
   barcode?: string;
 }): Promise<{ data: Product | null; error: string | null }> {
@@ -26,6 +27,7 @@ export async function createProduct(data: {
       description: data.description?.trim() || null,
       low_stock_threshold: data.low_stock_threshold ?? 10,
       is_serialized: data.is_serialized ?? true,
+      category_badge: data.category_badge ?? 'POWER_STATION',
       image_url: data.image_url?.trim() || null,
       barcode: data.barcode?.trim() || null,
     })
@@ -49,6 +51,7 @@ export async function updateProduct(
     description?: string;
     low_stock_threshold?: number;
     is_serialized?: boolean;
+    category_badge?: ProductCategory;
     image_url?: string;
     barcode?: string;
   }
@@ -60,6 +63,7 @@ export async function updateProduct(
   if (data.description !== undefined) updateData.description = data.description.trim() || null;
   if (data.low_stock_threshold !== undefined) updateData.low_stock_threshold = data.low_stock_threshold;
   if (data.is_serialized !== undefined) updateData.is_serialized = data.is_serialized;
+  if (data.category_badge !== undefined) updateData.category_badge = data.category_badge;
   if (data.image_url !== undefined) updateData.image_url = data.image_url.trim() || null;
   if (data.barcode !== undefined) updateData.barcode = data.barcode.trim() || null;
 

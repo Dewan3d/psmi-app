@@ -10,7 +10,9 @@ import {
   getSalesSummary,
   getRecentActivity,
   getLowStockAlerts,
+  getStockByCategory,
 } from '@/actions/dashboard';
+import StockInfographicContainer from './components/stock-infographic-container';
 import {
   Package,
   TrendingUp,
@@ -91,11 +93,12 @@ function Sparkline({
 // ── Main Dashboard ────────────────────────────────────────────
 export default async function DashboardPage() {
   // Fetch all data in parallel
-  const [locationData, salesData, activityData, alertData] = await Promise.all([
+  const [locationData, salesData, activityData, alertData, stockCategoryData] = await Promise.all([
     getInventoryByLocation(),
     getSalesSummary(),
     getRecentActivity(10),
     getLowStockAlerts(),
+    getStockByCategory(),
   ]);
 
   // Compute KPI totals from location data
@@ -206,6 +209,13 @@ export default async function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Visual Stock Infographics ─────────────────────────── */}
+      <StockInfographicContainer
+        totals={stockCategoryData.data.totals}
+        byCategory={stockCategoryData.data.by_category}
+        byModel={stockCategoryData.data.by_model}
+      />
 
       {/* ── Main Grid: Transactions + Recent Activity ────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
