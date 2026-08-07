@@ -38,6 +38,8 @@ import { getSession } from '@/actions/auth';
 import { listInboundTransactions, deleteInboundTransaction } from '@/actions/inbound';
 import { UserRole, ProductCategory } from '@/lib/types/database';
 
+import ComboboxSelect from '../components/combobox-select';
+
 type Product = {
   sku: string;
   model_name: string;
@@ -1051,21 +1053,18 @@ function UserSection({
                 </p>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Assign Location
-                </label>
-                <select
+                <ComboboxSelect
+                  label="Assign Location"
+                  options={locations.map((l) => ({
+                    value: l.id,
+                    label: l.name,
+                    sublabel: l.type,
+                  }))}
                   value={inviteLocation}
-                  onChange={(e) => setInviteLocation(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                >
-                  <option value="">No specific location</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setInviteLocation}
+                  placeholder="No specific location"
+                  searchPlaceholder="Type location name..."
+                />
               </div>
             </div>
             {error && <p className="text-xs text-red-600 font-medium">{error}</p>}

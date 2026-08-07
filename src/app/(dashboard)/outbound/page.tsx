@@ -36,6 +36,8 @@ import { uploadVerificationDoc, markTransactionVerified, getVerificationDocs, ch
 import { listProducts } from '@/actions/products';
 import { getFifoQueue } from '@/actions/inventory';
 
+import ComboboxSelect from '../components/combobox-select';
+
 type OutboundSummary = {
   id: string;
   tracking_number: string | null;
@@ -340,24 +342,32 @@ function NewOutboundModal({
                 ))}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">From Location</label>
-                  <select value={fromLocationId} onChange={(e) => setFromLocationId(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
-                    <option value="">Select…</option>
-                    {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ComboboxSelect
+                  label="From Location"
+                  options={locations.map((l) => ({
+                    value: l.id,
+                    label: l.name,
+                    sublabel: l.type,
+                  }))}
+                  value={fromLocationId}
+                  onChange={setFromLocationId}
+                  placeholder="Select source location..."
+                  searchPlaceholder="Type location name..."
+                />
                 {route === 'TB' && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1.5">To Branch</label>
-                    <select value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
-                      <option value="">Select…</option>
-                      {branchLocations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                    </select>
-                  </div>
+                  <ComboboxSelect
+                    label="To Branch"
+                    options={branchLocations.map((l) => ({
+                      value: l.id,
+                      label: l.name,
+                      sublabel: l.type,
+                    }))}
+                    value={toLocationId}
+                    onChange={setToLocationId}
+                    placeholder="Select destination branch..."
+                    searchPlaceholder="Type branch name..."
+                  />
                 )}
               </div>
 
@@ -441,14 +451,26 @@ function NewOutboundModal({
               <div className="px-6 py-5 space-y-4">
                 <h3 className="text-sm font-semibold text-slate-700">Add Items to Dispatch</h3>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Product SKU</label>
-                  <select value={sku} onChange={(e) => setSku(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30">
-                    <option value="">Select a product...</option>
-                    {products.map((p) => <option key={p.sku} value={p.sku}>{p.model_name} ({p.sku})</option>)}
-                  </select>
-                </div>
+                <ComboboxSelect
+                  label="Product SKU"
+                  options={products.map((p) => ({
+                    value: p.sku,
+                    label: p.model_name,
+                    sublabel: p.sku,
+                    badge: (p as any).category_badge === 'POWER_STATION' ? '⚡ Power Station'
+                         : (p as any).category_badge === 'SHS' ? '☀️ SHS'
+                         : (p as any).category_badge === 'ACCESSORIES' ? '🔌 Accessories'
+                         : undefined,
+                    badgeColor: (p as any).category_badge === 'POWER_STATION' ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                              : (p as any).category_badge === 'SHS' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : 'bg-amber-50 text-amber-700 border-amber-100',
+                  }))}
+                  value={sku}
+                  onChange={setSku}
+                  placeholder="Search product name or SKU..."
+                  searchPlaceholder="Type SKU or model keyword..."
+                  emptyText="No matching products found"
+                />
 
                 {sku && !isSerialized ? (
                   /* Non-serialized product: enter quantity */
