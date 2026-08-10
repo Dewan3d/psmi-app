@@ -120,98 +120,33 @@ export async function createInboundByQuantity(data: {
   if (data.quantity <= 0) {
     return { data: null, pending_count: 0, error: 'Quantity must be greater than zero' };
   }
-  if (data.quantity > 500) {
-    return { data: null, pending_count: 0, error: 'Maximum batch size is 500 units' };
+  if (data.quantity > 10000) {
+    return { data: null, pending_count: 0, error: 'Maximum batch size is 10,000 units' };
   }
 
-  // Validate SKU exists and check if it's serialized
-  const { data: product } = await supabase
-    .from('products')
-    .select('sku, is_serialized')
-    .eq('sku', data.sku)
-    .single();
+  const { data: rpcData, error: rpcError } = await supabase.rpc('inbound_by_quantity', {
+    p_sku: data.sku,
+    p_location_id: data.location_id,
+    p_user_id: data.user_id,
+    p_quantity: data.quantity,
+    p_notes: data.notes || '',
+    p_timestamp: Date.now(),
+  });
 
-  if (!product) {
-    return { data: null, pending_count: 0, error: `SKU "${data.sku}" does not exist` };
+  if (rpcError) {
+    return { data: null, pending_count: 0, error: rpcError.message };
   }
 
-  // Fetch destination location type to set correct unit status
-  const { data: location } = await supabase
-    .from('locations')
-    .select('type')
-    .eq('id', data.location_id)
-    .single();
+  const result = rpcData as { data: Transaction | null; pending_count: number; error: string | null };
 
-  const isSerialized = product.is_serialized !== false; // default to true
-  const initialStatus = isSerialized
-    ? ('PENDING_SERIAL' as const)
-    : (location?.type === 'BRANCH' ? ('IN_BRANCH' as const) : ('IN_WAREHOUSE' as const));
-
-  // 1. Create the transaction record
-  const label = isSerialized ? 'QUANTITY' : 'NON-SERIALIZED';
-  const notesStr = isSerialized ? 'Serial numbers to be assigned.' : 'Non-serialized accessories inventory.';
-  
-  const { data: transaction, error: txnError } = await supabase
-    .from('transactions')
-    .insert({
-      type: 'INBOUND',
-      to_location_id: data.location_id,
-      user_id: data.user_id,
-      notes: data.notes
-        ? `[${label} UPLOAD - ${data.quantity} units] ${data.notes}`
-        : `[${label} UPLOAD - ${data.quantity} units] ${notesStr}`,
-    })
-    .select()
-    .single();
-
-  if (txnError) {
-    return { data: null, pending_count: 0, error: `Failed to create transaction: ${txnError.message}` };
+  if (result.error) {
+    return { data: null, pending_count: 0, error: result.error };
   }
 
-  // 2. Generate serial numbers and insert units
-  const serials: string[] = [];
-  const timestamp = Date.now();
-  for (let i = 1; i <= data.quantity; i++) {
-    if (isSerialized) {
-      serials.push(generatePlaceholderSerial(data.sku, i));
-    } else {
-      const padded = String(i).padStart(4, '0');
-      serials.push(`NS-${data.sku.toUpperCase()}-${timestamp}-${padded}`);
-    }
-  }
-
-  const unitRows = serials.map((sn) => ({
-    serial_number: sn,
-    sku: data.sku,
-    location_id: data.location_id,
-    status: initialStatus,
-  }));
-
-  const { error: unitsError } = await supabase
-    .from('inventory_units')
-    .insert(unitRows);
-
-  if (unitsError) {
-    await supabase.from('transactions').delete().eq('id', transaction.id);
-    return {
-      data: null,
-      pending_count: 0,
-      error: `Failed to create units: ${unitsError.message}`,
-    };
-  }
-
-  // 3. Link serials to the transaction
-  const itemRows = serials.map((sn) => ({
-    transaction_id: transaction.id,
-    serial_number: sn,
-  }));
-
-  await supabase.from('transaction_items').insert(itemRows);
-
-  return { 
-    data: transaction, 
-    pending_count: isSerialized ? data.quantity : 0, 
-    error: null 
+  return {
+    data: result.data,
+    pending_count: result.pending_count,
+    error: null,
   };
 }
 

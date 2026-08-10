@@ -25,14 +25,14 @@ export async function getInventoryByLocation(): Promise<{
     return { data: [], error: locError.message };
   }
 
-  // Get all units grouped by location and status (excluding SOLD)
-  const { data: units, error: unitsError } = await supabase
-    .from('inventory_units')
-    .select('location_id, status')
+  // Get aggregated stock by location and status (excluding SOLD)
+  const { data: summaryRows, error: summaryError } = await supabase
+    .from('location_stock_summary')
+    .select('location_id, status, count')
     .neq('status', 'SOLD');
 
-  if (unitsError) {
-    return { data: [], error: unitsError.message };
+  if (summaryError) {
+    return { data: [], error: summaryError.message };
   }
 
   // Build location stock map
@@ -56,11 +56,12 @@ export async function getInventoryByLocation(): Promise<{
     });
   }
 
-  for (const unit of units || []) {
-    const stock = stockMap.get(unit.location_id);
+  for (const row of summaryRows || []) {
+    const stock = stockMap.get(row.location_id);
     if (!stock) continue;
-    stock.total_units++;
-    stock.status_breakdown[unit.status as UnitStatus]++;
+    const count = row.count || 0;
+    stock.total_units += count;
+    stock.status_breakdown[row.status as UnitStatus] += count;
   }
 
   return { data: Array.from(stockMap.values()), error: null };
@@ -167,23 +168,23 @@ export async function getLowStockAlerts(): Promise<{
     return { data: [], error: prodError.message };
   }
 
-  // Get all inventory units to check count and ever-inbounded status
-  const { data: allUnits, error: unitsError } = await supabase
-    .from('inventory_units')
-    .select('sku, status');
+  // Get aggregated inventory counts grouped by SKU and status
+  const { data: summaryRows, error: summaryError } = await supabase
+    .from('inventory_stock_summary')
+    .select('sku, status, count');
 
-  if (unitsError) {
-    return { data: [], error: unitsError.message };
+  if (summaryError) {
+    return { data: [], error: summaryError.message };
   }
 
   // Track SKUs that have ever been inbounded & current warehouse stock count
   const everInboundedSkus = new Set<string>();
   const skuWarehouseCounts: Record<string, number> = {};
 
-  for (const unit of allUnits || []) {
-    everInboundedSkus.add(unit.sku);
-    if (unit.status === 'IN_WAREHOUSE') {
-      skuWarehouseCounts[unit.sku] = (skuWarehouseCounts[unit.sku] || 0) + 1;
+  for (const row of summaryRows || []) {
+    everInboundedSkus.add(row.sku);
+    if (row.status === 'IN_WAREHOUSE') {
+      skuWarehouseCounts[row.sku] = (skuWarehouseCounts[row.sku] || 0) + (row.count || 0);
     }
   }
 
@@ -295,16 +296,16 @@ export async function getStockByCategory(): Promise<{
     };
   }
 
-  // Get all inventory units (excluding SOLD)
-  const { data: units, error: unitsError } = await supabase
-    .from('inventory_units')
-    .select('sku, status')
+  // Get aggregated inventory counts grouped by SKU and status (excluding SOLD)
+  const { data: summaryRows, error: summaryError } = await supabase
+    .from('inventory_stock_summary')
+    .select('sku, status, count')
     .neq('status', 'SOLD');
 
-  if (unitsError) {
+  if (summaryError) {
     return {
       data: { totals: {} as any, by_category: [], by_model: [] },
-      error: unitsError.message,
+      error: summaryError.message,
     };
   }
 
@@ -365,28 +366,29 @@ export async function getStockByCategory(): Promise<{
     });
   }
 
-  // Process each unit
-  for (const unit of units || []) {
-    const product = productMap.get(unit.sku);
+  // Process each aggregated stock summary row
+  for (const row of summaryRows || []) {
+    const product = productMap.get(row.sku);
     if (!product) continue;
 
-    const status = unit.status as UnitStatus;
+    const status = row.status as UnitStatus;
+    const count = row.count || 0;
 
     // Global totals
-    totals[status]++;
+    totals[status] += count;
 
     // Category aggregation
     const catEntry = categoryMap.get(product.category_badge);
     if (catEntry) {
-      catEntry.count++;
-      catEntry.status_breakdown[status]++;
+      catEntry.count += count;
+      catEntry.status_breakdown[status] += count;
     }
 
     // Model aggregation
-    const modelEntry = modelMap.get(unit.sku);
+    const modelEntry = modelMap.get(row.sku);
     if (modelEntry) {
-      modelEntry.total++;
-      modelEntry.status_breakdown[status]++;
+      modelEntry.total += count;
+      modelEntry.status_breakdown[status] += count;
     }
   }
 

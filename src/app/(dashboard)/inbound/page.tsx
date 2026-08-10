@@ -400,7 +400,7 @@ function NewInboundModal({
               <input
                 type="number"
                 min="1"
-                max="500"
+                max="10000"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
                 placeholder="e.g. 50"

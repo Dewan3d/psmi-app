@@ -176,14 +176,14 @@ export async function getStockSummary(): Promise<{
     return { data: [], error: productsError.message };
   }
 
-  // Get all inventory counts grouped by SKU and status (excluding SOLD)
-  const { data: units, error: unitsError } = await supabase
-    .from('inventory_units')
-    .select('sku, status')
+  // Get aggregated inventory counts grouped by SKU and status (excluding SOLD)
+  const { data: summaryRows, error: summaryError } = await supabase
+    .from('inventory_stock_summary')
+    .select('sku, status, count')
     .neq('status', 'SOLD');
 
-  if (unitsError) {
-    return { data: [], error: unitsError.message };
+  if (summaryError) {
+    return { data: [], error: summaryError.message };
   }
 
   // Aggregate counts
@@ -205,32 +205,33 @@ export async function getStockSummary(): Promise<{
     });
   }
 
-  for (const unit of units || []) {
-    const summary = summaryMap.get(unit.sku);
+  for (const row of summaryRows || []) {
+    const summary = summaryMap.get(row.sku);
     if (!summary) continue;
 
-    summary.total++;
-    switch (unit.status) {
+    const count = row.count || 0;
+    summary.total += count;
+    switch (row.status) {
       case 'IN_WAREHOUSE':
-        summary.in_warehouse++;
+        summary.in_warehouse += count;
         break;
       case 'RESERVED':
-        summary.reserved++;
+        summary.reserved += count;
         break;
       case 'IN_TRANSIT':
-        summary.in_transit++;
+        summary.in_transit += count;
         break;
       case 'IN_BRANCH':
-        summary.in_branch++;
+        summary.in_branch += count;
         break;
       case 'SOLD':
-        summary.sold++;
+        summary.sold += count;
         break;
       case 'DAMAGED_REPAIR':
-        summary.damaged_repair++;
+        summary.damaged_repair += count;
         break;
       case 'PENDING_SERIAL':
-        summary.pending_serial++;
+        summary.pending_serial += count;
         break;
     }
   }
