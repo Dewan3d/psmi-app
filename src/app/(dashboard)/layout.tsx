@@ -24,6 +24,7 @@ import {
   Bell,
   ChevronDown,
   Zap,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { signOut, getSession } from '@/actions/auth';
 
@@ -33,6 +34,7 @@ const navItems = [
   { label: 'Inbound', href: '/inbound', icon: PackageOpen },
   { label: 'Outbound', href: '/outbound', icon: Truck },
   { label: 'Inventory', href: '/inventory', icon: Boxes },
+  { label: 'SKU Swap', href: '/sku-swap', icon: ArrowLeftRight },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
 

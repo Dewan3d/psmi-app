@@ -150,11 +150,56 @@ export async function createInboundByQuantity(data: {
   };
 }
 
+// ── Create inbound by model group (stock-first, SKU confirmed later) ──
+export async function createInboundByModelGroup(data: {
+  location_id: string;
+  model_group: string;
+  quantity: number;
+  user_id: string;
+  notes?: string;
+}): Promise<{ data: Transaction | null; pending_count: number; default_sku: string | null; error: string | null }> {
+  const supabase = await createClient();
+
+  if (data.quantity <= 0) {
+    return { data: null, pending_count: 0, default_sku: null, error: 'Quantity must be greater than zero' };
+  }
+  if (data.quantity > 10000) {
+    return { data: null, pending_count: 0, default_sku: null, error: 'Maximum batch size is 10,000 units' };
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc('inbound_by_model_group', {
+    p_model_group: data.model_group,
+    p_location_id: data.location_id,
+    p_user_id: data.user_id,
+    p_quantity: data.quantity,
+    p_notes: data.notes || '',
+    p_timestamp: Date.now(),
+  });
+
+  if (rpcError) {
+    return { data: null, pending_count: 0, default_sku: null, error: rpcError.message };
+  }
+
+  const result = rpcData as { data: Transaction | null; pending_count: number; default_sku: string | null; error: string | null };
+
+  if (result.error) {
+    return { data: null, pending_count: 0, default_sku: null, error: result.error };
+  }
+
+  return {
+    data: result.data,
+    pending_count: result.pending_count,
+    default_sku: result.default_sku,
+    error: null,
+  };
+}
+
 // ── Assign a real serial number to a pending placeholder ───────
 export async function assignSerialNumber(data: {
   placeholder_serial: string;
   real_serial: string;
   transaction_id: string;
+  sku_override?: string;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
@@ -190,12 +235,41 @@ export async function assignSerialNumber(data: {
     return { error: `Serial number "${realSerial}" already exists in inventory` };
   }
 
-  // Insert the real unit
+  // Determine the final SKU (override or original)
+  let finalSku = placeholder.sku;
+
+  if (data.sku_override && data.sku_override !== placeholder.sku) {
+    // Validate the override SKU exists
+    const { data: overrideProduct } = await supabase
+      .from('products')
+      .select('sku, model_group')
+      .eq('sku', data.sku_override)
+      .single();
+
+    if (!overrideProduct) {
+      return { error: `Override SKU "${data.sku_override}" does not exist` };
+    }
+
+    // Validate same model group
+    const { data: originalProduct } = await supabase
+      .from('products')
+      .select('model_group')
+      .eq('sku', placeholder.sku)
+      .single();
+
+    if (originalProduct?.model_group && overrideProduct.model_group !== originalProduct.model_group) {
+      return { error: `SKU "${data.sku_override}" belongs to model group "${overrideProduct.model_group}" but placeholder is in "${originalProduct.model_group}"` };
+    }
+
+    finalSku = data.sku_override;
+  }
+
+  // Insert the real unit with final SKU
   const { error: insertError } = await supabase
     .from('inventory_units')
     .insert({
       serial_number: realSerial,
-      sku: placeholder.sku,
+      sku: finalSku,
       location_id: placeholder.location_id,
       status: 'IN_WAREHOUSE' as const,
     });
@@ -224,6 +298,7 @@ export async function assignSerialNumber(data: {
 export async function bulkAssignSerials(data: {
   transaction_id: string;
   real_serials: string[];
+  sku_override?: string;
 }): Promise<{
   assigned: number;
   errors: { serial: string; error: string }[];
@@ -262,6 +337,7 @@ export async function bulkAssignSerials(data: {
       placeholder_serial: pendingPlaceholders[i],
       real_serial: data.real_serials[i],
       transaction_id: data.transaction_id,
+      sku_override: data.sku_override,
     });
 
     if (result.error) {

@@ -24,6 +24,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { getInboundTransaction, assignSerialNumber, bulkAssignSerials } from '@/actions/inbound';
+import { createClient } from '@/lib/supabase/client';
 
 type InboundDetail = {
   id: string;
@@ -45,15 +46,21 @@ function SerialAssignmentRow({
   placeholder,
   transactionId,
   onAssigned,
+  skuOptions,
+  defaultSku,
 }: {
   placeholder: string;
   transactionId: string;
   onAssigned: () => void;
+  skuOptions: { sku: string; model_name: string }[];
+  defaultSku: string;
 }) {
   const [inputSerial, setInputSerial] = useState('');
+  const [selectedSku, setSelectedSku] = useState(defaultSku);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const showSkuPicker = skuOptions.length > 1;
 
   function handleAssign() {
     if (!inputSerial.trim()) return;
@@ -63,6 +70,7 @@ function SerialAssignmentRow({
         placeholder_serial: placeholder,
         real_serial: inputSerial.trim(),
         transaction_id: transactionId,
+        sku_override: selectedSku !== defaultSku ? selectedSku : undefined,
       });
       if (result.error) {
         setError(result.error);
@@ -97,6 +105,20 @@ function SerialAssignmentRow({
             className="flex-1 bg-transparent text-sm font-mono placeholder:text-slate-400 focus:outline-none"
           />
         </div>
+        {showSkuPicker && (
+          <select
+            value={selectedSku}
+            onChange={(e) => setSelectedSku(e.target.value)}
+            className="px-2 py-2 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono max-w-[140px]"
+            title="SKU for this serial"
+          >
+            {skuOptions.map((opt) => (
+              <option key={opt.sku} value={opt.sku}>
+                {opt.sku}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={handleAssign}
           disabled={isPending || !inputSerial.trim()}
@@ -117,21 +139,31 @@ function BulkAssignPanel({
   transactionId,
   pendingCount,
   onComplete,
+  skuOptions,
+  defaultSku,
 }: {
   transactionId: string;
   pendingCount: number;
   onComplete: () => void;
+  skuOptions: { sku: string; model_name: string }[];
+  defaultSku: string;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
+  const [selectedSku, setSelectedSku] = useState(defaultSku);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<{ assigned: number; errors: { serial: string; error: string }[] } | null>(null);
+  const showSkuPicker = skuOptions.length > 1;
 
   function handleBulkAssign() {
     const serials = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
     if (serials.length === 0) return;
     startTransition(async () => {
-      const res = await bulkAssignSerials({ transaction_id: transactionId, real_serials: serials });
+      const res = await bulkAssignSerials({
+        transaction_id: transactionId,
+        real_serials: serials,
+        sku_override: selectedSku !== defaultSku ? selectedSku : undefined,
+      });
       setResult(res);
       if (res.assigned > 0) onComplete();
     });
@@ -160,6 +192,22 @@ function BulkAssignPanel({
           <p className="text-xs text-slate-500 pt-3">
             Enter one serial number per line (or comma-separated). They will be assigned to pending slots in order.
           </p>
+          {showSkuPicker && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Assign all to SKU</label>
+              <select
+                value={selectedSku}
+                onChange={(e) => setSelectedSku(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+              >
+                {skuOptions.map((opt) => (
+                  <option key={opt.sku} value={opt.sku}>
+                    {opt.sku} — {opt.model_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -206,6 +254,7 @@ export default function InboundDetailPage() {
   const [detail, setDetail] = useState<InboundDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [skuOptions, setSkuOptions] = useState<{ sku: string; model_name: string }[]>([]);
 
   async function fetchDetail() {
     setLoading(true);
@@ -215,6 +264,35 @@ export default function InboundDetailPage() {
     } else {
       setDetail(result.data);
       setError(null);
+
+      // Load model group SKU options if applicable
+      const firstSku = result.data.items[0]?.sku;
+      if (firstSku) {
+        const supabase = createClient();
+        const { data: product } = await supabase
+          .from('products')
+          .select('model_group')
+          .eq('sku', firstSku)
+          .single();
+
+        if (product?.model_group) {
+          const { data: groupSkus } = await supabase
+            .from('products')
+            .select('sku, model_name')
+            .eq('model_group', product.model_group)
+            .order('sku', { ascending: true });
+
+          setSkuOptions(groupSkus || []);
+        } else {
+          // Single SKU — no group
+          const { data: singleProd } = await supabase
+            .from('products')
+            .select('sku, model_name')
+            .eq('sku', firstSku)
+            .single();
+          setSkuOptions(singleProd ? [singleProd] : []);
+        }
+      }
     }
     setLoading(false);
   }
@@ -288,6 +366,8 @@ export default function InboundDetailPage() {
           transactionId={detail.id}
           pendingCount={pendingItems.length}
           onComplete={fetchDetail}
+          skuOptions={skuOptions}
+          defaultSku={detail.items[0]?.sku || ''}
         />
       )}
 
@@ -311,6 +391,8 @@ export default function InboundDetailPage() {
                   placeholder={item.serial_number}
                   transactionId={detail.id}
                   onAssigned={fetchDetail}
+                  skuOptions={skuOptions}
+                  defaultSku={item.sku}
                 />
               </div>
             ))}

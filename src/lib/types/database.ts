@@ -53,6 +53,7 @@ export interface Product {
   category_badge: ProductCategory;
   image_url?: string | null;
   barcode?: string | null;
+  model_group?: string | null;
   created_at: string;
 }
 
@@ -130,6 +131,7 @@ export interface StockSummary {
   sku: string;
   model_name: string;
   category_badge: ProductCategory;
+  model_group?: string | null;
   total: number;
   in_warehouse: number;
   reserved: number;
@@ -138,6 +140,20 @@ export interface StockSummary {
   sold: number;
   damaged_repair: number;
   pending_serial: number;
+}
+
+export interface ModelGroup {
+  model_group: string;
+  skus: { sku: string; model_name: string }[];
+}
+
+export interface SkuSwapResult {
+  serial_number: string;
+  old_sku: string;
+  new_sku: string;
+  swapped_at: string;
+  user_name?: string;
+  reason?: string;
 }
 
 export interface LocationStock {
@@ -187,6 +203,7 @@ export interface Database {
         Insert: Omit<Product, 'created_at'> & {
           created_at?: string;
           low_stock_threshold?: number;
+          model_group?: string | null;
         };
         Update: Partial<Product>;
       };

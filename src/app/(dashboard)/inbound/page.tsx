@@ -33,9 +33,10 @@ import {
   listInboundTransactions,
   createInboundTransaction,
   createInboundByQuantity,
+  createInboundByModelGroup,
   deleteInboundTransaction,
 } from '@/actions/inbound';
-import { listProducts } from '@/actions/products';
+import { listProducts, listModelGroups } from '@/actions/products';
 import { createClient } from '@/lib/supabase/client';
 
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
@@ -53,8 +54,9 @@ type InboundSummary = {
   model_name: string;
 };
 
-type Product = { sku: string; model_name: string; is_serialized?: boolean };
+type Product = { sku: string; model_name: string; is_serialized?: boolean; model_group?: string | null };
 type Location = { id: string; name: string; type: string };
+type ModelGroupOption = { model_group: string; skus: { sku: string; model_name: string }[] };
 
 const playBeep = () => {
   try {
@@ -82,11 +84,13 @@ function NewInboundModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [mode, setMode] = useState<'quantity' | 'serials'>('quantity');
+  const [mode, setMode] = useState<'quantity' | 'model-group' | 'serials'>('quantity');
   const [inputSubTab, setInputSubTab] = useState<'manual' | 'file' | 'scan'>('manual');
   const [products, setProducts] = useState<Product[]>([]);
+  const [modelGroups, setModelGroups] = useState<ModelGroupOption[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [sku, setSku] = useState('');
+  const [selectedModelGroup, setSelectedModelGroup] = useState('');
   const [locationId, setLocationId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [serialsText, setSerialsText] = useState('');
@@ -107,11 +111,19 @@ function NewInboundModal({
   const selectedProd = products.find((p) => p.sku === sku);
   const isSerialized = selectedProd ? selectedProd.is_serialized !== false : true;
 
+  // Get the model group info for the selected group
+  const selectedMG = modelGroups.find((mg) => mg.model_group === selectedModelGroup);
+  const defaultMGSku = selectedMG?.skus[0]; // Already sorted alphabetically from the server
+
   useEffect(() => {
     async function load() {
       // Load products
       const { data: prods } = await listProducts();
       setProducts((prods || []) as any);
+
+      // Load model groups
+      const { data: groups } = await listModelGroups();
+      setModelGroups((groups || []) as any);
 
       // Load locations
       const supabase = createClient();
@@ -256,11 +268,26 @@ function NewInboundModal({
     e.preventDefault();
     setError(null);
 
-    if (!sku) { setError('Please select a SKU'); return; }
+    if (mode === 'model-group') {
+      if (!selectedModelGroup) { setError('Please select a model group'); return; }
+    } else {
+      if (!sku) { setError('Please select a SKU'); return; }
+    }
     if (!locationId) { setError('Please select a destination location'); return; }
 
     startTransition(async () => {
-      if (mode === 'quantity') {
+      if (mode === 'model-group') {
+        const qty = parseInt(quantity, 10);
+        if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
+        const result = await createInboundByModelGroup({
+          model_group: selectedModelGroup,
+          location_id: locationId,
+          quantity: qty,
+          user_id: userId,
+          notes: notes || undefined,
+        });
+        if (result.error) { setError(result.error); return; }
+      } else if (mode === 'quantity') {
         const qty = parseInt(quantity, 10);
         if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
         const result = await createInboundByQuantity({
@@ -312,31 +339,47 @@ function NewInboundModal({
               <button
                 type="button"
                 onClick={() => setMode('quantity')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all ${
                   mode === 'quantity'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <Hash className="w-4 h-4" />
-                Enter Quantity
+                <Hash className="w-3.5 h-3.5" />
+                By SKU
               </button>
+              {modelGroups.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMode('model-group')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all ${
+                    mode === 'model-group'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <PackagePlus className="w-3.5 h-3.5" />
+                  By Model
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMode('serials')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all ${
                   mode === 'serials'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <Upload className="w-4 h-4" />
-                Enter Serial Numbers
+                <Upload className="w-3.5 h-3.5" />
+                Serials
               </button>
             </div>
             <p className="text-xs text-slate-400 mt-2 text-center">
               {mode === 'quantity'
-                ? 'Upload stock count now — assign serial numbers later from the batch detail page.'
+                ? 'Upload stock count by specific SKU — assign serial numbers later.'
+                : mode === 'model-group'
+                ? 'Upload total count for a model group — assign SKU + serials later.'
                 : 'Enter serial numbers directly to register units as IN WAREHOUSE immediately.'}
             </p>
           </div>
@@ -354,27 +397,54 @@ function NewInboundModal({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          {/* SKU Combobox */}
-          <ComboboxSelect
-            label="Product SKU"
-            options={products.map((p) => ({
-              value: p.sku,
-              label: p.model_name,
-              sublabel: p.sku,
-              badge: (p as any).category_badge === 'POWER_STATION' ? '⚡ Power Station'
-                   : (p as any).category_badge === 'SHS' ? '☀️ SHS'
-                   : (p as any).category_badge === 'ACCESSORIES' ? '🔌 Accessories'
-                   : undefined,
-              badgeColor: (p as any).category_badge === 'POWER_STATION' ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                        : (p as any).category_badge === 'SHS' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                        : 'bg-amber-50 text-amber-700 border-amber-100',
-            }))}
-            value={sku}
-            onChange={setSku}
-            placeholder="Search product name or SKU..."
-            searchPlaceholder="Type SKU or model keyword..."
-            emptyText="No matching products found"
-          />
+          {/* Product Selector — SKU or Model Group depending on mode */}
+          {mode === 'model-group' ? (
+            <>
+              <ComboboxSelect
+                label="Model Group"
+                options={modelGroups.map((mg) => ({
+                  value: mg.model_group,
+                  label: mg.model_group,
+                  sublabel: `${mg.skus.length} SKU variant${mg.skus.length > 1 ? 's' : ''}: ${mg.skus.map(s => s.sku).join(', ')}`,
+                }))}
+                value={selectedModelGroup}
+                onChange={setSelectedModelGroup}
+                placeholder="Search model group..."
+                searchPlaceholder="Type model name..."
+                emptyText="No model groups found — set them up in Settings"
+              />
+              {selectedMG && (
+                <div className="flex items-start gap-2 px-3 py-2.5 bg-indigo-50/60 border border-indigo-200/60 rounded-xl text-indigo-800 text-xs leading-relaxed">
+                  <PackagePlus className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Placeholders will be created under <strong>{defaultMGSku?.sku}</strong> ({defaultMGSku?.model_name}).
+                    Correct SKU is assigned when serial numbers are scanned.
+                  </span>
+                </div>
+              )}
+            </>
+          ) : (
+            <ComboboxSelect
+              label="Product SKU"
+              options={products.map((p) => ({
+                value: p.sku,
+                label: p.model_name,
+                sublabel: p.sku,
+                badge: (p as any).category_badge === 'POWER_STATION' ? '⚡ Power Station'
+                     : (p as any).category_badge === 'SHS' ? '☀️ SHS'
+                     : (p as any).category_badge === 'ACCESSORIES' ? '🔌 Accessories'
+                     : undefined,
+                badgeColor: (p as any).category_badge === 'POWER_STATION' ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                          : (p as any).category_badge === 'SHS' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                          : 'bg-amber-50 text-amber-700 border-amber-100',
+              }))}
+              value={sku}
+              onChange={setSku}
+              placeholder="Search product name or SKU..."
+              searchPlaceholder="Type SKU or model keyword..."
+              emptyText="No matching products found"
+            />
+          )}
 
           {/* Location Combobox */}
           <ComboboxSelect

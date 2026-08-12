@@ -5,7 +5,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
-import { Product, ProductCategory } from '@/lib/types/database';
+import { Product, ProductCategory, ModelGroup } from '@/lib/types/database';
 
 export async function createProduct(data: {
   sku: string;
@@ -16,6 +16,7 @@ export async function createProduct(data: {
   category_badge?: ProductCategory;
   image_url?: string;
   barcode?: string;
+  model_group?: string;
 }): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -30,6 +31,7 @@ export async function createProduct(data: {
       category_badge: data.category_badge ?? 'POWER_STATION',
       image_url: data.image_url?.trim() || null,
       barcode: data.barcode?.trim() || null,
+      model_group: data.model_group?.trim() || null,
     })
     .select()
     .single();
@@ -54,6 +56,7 @@ export async function updateProduct(
     category_badge?: ProductCategory;
     image_url?: string;
     barcode?: string;
+    model_group?: string | null;
   }
 ): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createClient();
@@ -66,6 +69,7 @@ export async function updateProduct(
   if (data.category_badge !== undefined) updateData.category_badge = data.category_badge;
   if (data.image_url !== undefined) updateData.image_url = data.image_url.trim() || null;
   if (data.barcode !== undefined) updateData.barcode = data.barcode.trim() || null;
+  if (data.model_group !== undefined) updateData.model_group = data.model_group?.trim() || null;
 
   const { data: product, error } = await supabase
     .from('products')
@@ -141,4 +145,41 @@ export async function getProduct(
   }
 
   return { data, error: null };
+}
+
+export async function listModelGroups(): Promise<{
+  data: ModelGroup[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('sku, model_name, model_group')
+    .not('model_group', 'is', null)
+    .order('model_group', { ascending: true })
+    .order('sku', { ascending: true });
+
+  if (error) {
+    return { data: [], error: error.message };
+  }
+
+  // Group by model_group
+  const groupMap = new Map<string, { sku: string; model_name: string }[]>();
+  for (const row of data || []) {
+    if (!row.model_group) continue;
+    if (!groupMap.has(row.model_group)) {
+      groupMap.set(row.model_group, []);
+    }
+    groupMap.get(row.model_group)!.push({
+      sku: row.sku,
+      model_name: row.model_name,
+    });
+  }
+
+  const groups: ModelGroup[] = Array.from(groupMap.entries()).map(
+    ([model_group, skus]) => ({ model_group, skus })
+  );
+
+  return { data: groups, error: null };
 }

@@ -47,6 +47,7 @@ type Product = {
   low_stock_threshold: number;
   is_serialized: boolean;
   category_badge: ProductCategory;
+  model_group?: string | null;
   created_at: string;
 };
 
@@ -79,6 +80,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
   const [threshold, setThreshold] = useState('10');
   const [isSerialized, setIsSerialized] = useState(true);
   const [categoryBadge, setCategoryBadge] = useState<ProductCategory>('POWER_STATION');
+  const [modelGroup, setModelGroup] = useState('');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [editingSku, setEditingSku] = useState<string | null>(null);
@@ -86,9 +88,13 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
   const [editDescription, setEditDescription] = useState('');
   const [editThreshold, setEditThreshold] = useState('');
   const [editCategoryBadge, setEditCategoryBadge] = useState<ProductCategory>('POWER_STATION');
+  const [editModelGroup, setEditModelGroup] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Distinct model groups from existing products
+  const existingModelGroups = [...new Set(products.map((p) => p.model_group).filter(Boolean))] as string[];
 
   async function loadProducts() {
     const result = await listProducts();
@@ -126,6 +132,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         low_stock_threshold: parseInt(threshold, 10) || 10,
         is_serialized: isSerialized,
         category_badge: categoryBadge,
+        model_group: modelGroup || undefined,
       });
       if (result.error) {
         setError(result.error);
@@ -137,6 +144,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       setThreshold('10');
       setIsSerialized(true);
       setCategoryBadge('POWER_STATION');
+      setModelGroup('');
       setShowForm(false);
       await loadProducts();
     });
@@ -148,6 +156,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     setEditDescription(p.description || '');
     setEditThreshold(String(p.low_stock_threshold));
     setEditCategoryBadge(p.category_badge || 'POWER_STATION');
+    setEditModelGroup(p.model_group || '');
   }
 
   function handleSaveEdit(skuToEdit: string) {
@@ -157,6 +166,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         description: editDescription,
         low_stock_threshold: parseInt(editThreshold, 10) || 10,
         category_badge: editCategoryBadge,
+        model_group: editModelGroup || null,
       });
       setEditingSku(null);
       await loadProducts();
@@ -314,6 +324,25 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   </label>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Model Group
+                </label>
+                <input
+                  type="text"
+                  value={modelGroup}
+                  onChange={(e) => setModelGroup(e.target.value)}
+                  placeholder="e.g. E-60, EP-500"
+                  list="model-group-suggestions"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                />
+                <datalist id="model-group-suggestions">
+                  {existingModelGroups.map((mg) => (
+                    <option key={mg} value={mg} />
+                  ))}
+                </datalist>
+                <p className="text-[10px] text-slate-400 mt-0.5">Group SKU variants of the same device</p>
+              </div>
             </div>
             {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
             <div className="flex gap-2 pt-1">
@@ -431,6 +460,26 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     />
                   </div>
                 </div>
+                {/* Model Group Edit Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Model Group
+                    </label>
+                    <input
+                      value={editModelGroup}
+                      onChange={(e) => setEditModelGroup(e.target.value)}
+                      placeholder="e.g. E-60, EP-500"
+                      list="edit-model-group-suggestions"
+                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    />
+                    <datalist id="edit-model-group-suggestions">
+                      {existingModelGroups.map((mg) => (
+                        <option key={mg} value={mg} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -443,6 +492,11 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-md bg-slate-100 text-slate-700 font-mono">
                       {p.sku}
                     </span>
+                    {p.model_group && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-md bg-violet-50 text-violet-700 border border-violet-200/60">
+                        {p.model_group}
+                      </span>
+                    )}
                     {p.is_serialized === false && (
                       <span
                         className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-50 text-red-600 border border-red-200/80 shadow-xs cursor-help"
