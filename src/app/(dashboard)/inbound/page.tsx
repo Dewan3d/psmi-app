@@ -348,20 +348,18 @@ function NewInboundModal({
                 <Hash className="w-3.5 h-3.5" />
                 By SKU
               </button>
-              {modelGroups.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMode('model-group')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all ${
-                    mode === 'model-group'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  <PackagePlus className="w-3.5 h-3.5" />
-                  By Model
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setMode('model-group')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all ${
+                  mode === 'model-group'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <PackagePlus className="w-3.5 h-3.5" />
+                By Model
+              </button>
               <button
                 type="button"
                 onClick={() => setMode('serials')}
@@ -400,27 +398,44 @@ function NewInboundModal({
           {/* Product Selector — SKU or Model Group depending on mode */}
           {mode === 'model-group' ? (
             <>
-              <ComboboxSelect
-                label="Model Group"
-                options={modelGroups.map((mg) => ({
-                  value: mg.model_group,
-                  label: mg.model_group,
-                  sublabel: `${mg.skus.length} SKU variant${mg.skus.length > 1 ? 's' : ''}: ${mg.skus.map(s => s.sku).join(', ')}`,
-                }))}
-                value={selectedModelGroup}
-                onChange={setSelectedModelGroup}
-                placeholder="Search model group..."
-                searchPlaceholder="Type model name..."
-                emptyText="No model groups found — set them up in Settings"
-              />
-              {selectedMG && (
-                <div className="flex items-start gap-2 px-3 py-2.5 bg-indigo-50/60 border border-indigo-200/60 rounded-xl text-indigo-800 text-xs leading-relaxed">
-                  <PackagePlus className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>
-                    Placeholders will be created under <strong>{defaultMGSku?.sku}</strong> ({defaultMGSku?.model_name}).
-                    Correct SKU is assigned when serial numbers are scanned.
-                  </span>
+              {modelGroups.length === 0 ? (
+                <div className="flex items-start gap-2.5 p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-900 text-xs leading-relaxed">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-amber-900">No Model Groups Configured Yet</p>
+                    <p className="text-amber-800 mt-0.5">
+                      To inbound by model (e.g., 100 E-60s split between variants <code className="font-mono bg-amber-100 px-1 py-0.5 rounded">a-E60-B</code> and <code className="font-mono bg-amber-100 px-1 py-0.5 rounded">b-E60-C</code>), assign a <strong>Model Group</strong> to your products in Settings.
+                    </p>
+                    <Link href="/settings" onClick={onClose} className="inline-block mt-2 font-bold text-indigo-600 hover:underline">
+                      Go to Settings → Product Catalogue →
+                    </Link>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <ComboboxSelect
+                    label="Model Group"
+                    options={modelGroups.map((mg) => ({
+                      value: mg.model_group,
+                      label: mg.model_group,
+                      sublabel: `${mg.skus.length} SKU variant${mg.skus.length > 1 ? 's' : ''}: ${mg.skus.map(s => s.sku).join(', ')}`,
+                    }))}
+                    value={selectedModelGroup}
+                    onChange={setSelectedModelGroup}
+                    placeholder="Search model group..."
+                    searchPlaceholder="Type model name..."
+                    emptyText="No model groups found — set them up in Settings"
+                  />
+                  {selectedMG && (
+                    <div className="flex items-start gap-2 px-3 py-2.5 bg-indigo-50/60 border border-indigo-200/60 rounded-xl text-indigo-800 text-xs leading-relaxed">
+                      <PackagePlus className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>
+                        Placeholders will be created under <strong>{defaultMGSku?.sku}</strong> ({defaultMGSku?.model_name}).
+                        Correct SKU is assigned when serial numbers are scanned.
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (
