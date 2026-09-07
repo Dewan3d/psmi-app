@@ -94,12 +94,10 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
   const [editThreshold, setEditThreshold] = useState('');
   const [editCategoryBadge, setEditCategoryBadge] = useState<ProductCategory>('POWER_STATION');
   const [editModelGroup, setEditModelGroup] = useState('');
-  const [editCostPrice, setEditCostPrice] = useState('');
   const [editRetailPrice, setEditRetailPrice] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
-  const [costPrice, setCostPrice] = useState('');
   const [retailPrice, setRetailPrice] = useState('');
 
   // Import Prices state
@@ -158,7 +156,6 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         is_serialized: isSerialized,
         category_badge: categoryBadge,
         model_group: modelGroup || undefined,
-        cost_price: costPrice ? parseFloat(costPrice) : undefined,
         retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
       });
       if (result.error) {
@@ -173,7 +170,6 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       setIsSerialized(true);
       setCategoryBadge('POWER_STATION');
       setModelGroup('');
-      setCostPrice('');
       setRetailPrice('');
       setShowForm(false);
       setShowCreateConfirm(false);
@@ -188,7 +184,6 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       const result = await bulkUpdatePrices(
         matched.map((r: any) => ({
           sku: r.sku,
-          cost_price: r.cost_price,
           retail_price: r.retail_price,
         }))
       );
@@ -205,7 +200,6 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     setEditThreshold(String(p.low_stock_threshold));
     setEditCategoryBadge(p.category_badge || 'POWER_STATION');
     setEditModelGroup(p.model_group || '');
-    setEditCostPrice(p.cost_price != null ? String(p.cost_price) : '');
     setEditRetailPrice(p.retail_price != null ? String(p.retail_price) : '');
   }
 
@@ -217,7 +211,6 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         low_stock_threshold: parseInt(editThreshold, 10) || 10,
         category_badge: editCategoryBadge,
         model_group: editModelGroup || null,
-        cost_price: editCostPrice ? parseFloat(editCostPrice) : null,
         retail_price: editRetailPrice ? parseFloat(editRetailPrice) : null,
       });
       setEditingSku(null);
@@ -361,8 +354,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         <th className="px-3 py-2 font-semibold text-slate-500">SKU</th>
-                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Cost Price</th>
-                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Retail Price</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Selling Price</th>
                         <th className="px-3 py-2 font-semibold text-slate-500 text-center">Status</th>
                       </tr>
                     </thead>
@@ -370,8 +362,13 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                       {importPreview.rows.slice(0, 50).map((row: any, i: number) => (
                         <tr key={i} className={row.matched ? '' : 'bg-amber-50/50'}>
                           <td className="px-3 py-1.5 font-mono font-medium text-slate-800">{row.sku}</td>
-                          <td className="px-3 py-1.5 font-mono text-slate-600 text-right">{row.cost_price != null ? `₦${row.cost_price.toLocaleString()}` : '—'}</td>
-                          <td className="px-3 py-1.5 font-mono text-slate-600 text-right">{row.retail_price != null ? `₦${row.retail_price.toLocaleString()}` : '—'}</td>
+                          <td className="px-3 py-1.5 font-mono text-slate-600 text-right">
+                            {row.retail_price != null
+                              ? `₦${row.retail_price.toLocaleString()}`
+                              : row.cost_price != null
+                              ? `₦${row.cost_price.toLocaleString()}`
+                              : '—'}
+                          </td>
                           <td className="px-3 py-1.5 text-center">
                             {row.matched ? (
                               <span className="text-emerald-600 font-semibold">✓</span>
@@ -538,35 +535,20 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                 <p className="text-[10px] text-slate-400 mt-0.5">Group SKU variants of the same device</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Cost Price (₦)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={costPrice}
-                  onChange={(e) => setCostPrice(e.target.value)}
-                  placeholder="e.g. 150000"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Retail Price (₦)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={retailPrice}
-                  onChange={(e) => setRetailPrice(e.target.value)}
-                  placeholder="e.g. 200000"
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Selling Price (₦)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={retailPrice}
+                onChange={(e) => setRetailPrice(e.target.value)}
+                placeholder="e.g. 200000"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">The price at which this device is sold</p>
             </div>
             {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
             <div className="flex gap-2 pt-1">
@@ -708,21 +690,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                      Cost Price (₦)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={editCostPrice}
-                      onChange={(e) => setEditCostPrice(e.target.value)}
-                      placeholder="e.g. 150000"
-                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                      Retail Price (₦)
+                      Selling Price (₦)
                     </label>
                     <input
                       type="number"
@@ -794,11 +762,9 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
 
                   {/* Alert Badge + Action Buttons (Bottom Right) */}
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    {(p.cost_price != null || p.retail_price != null) && (
-                      <span className="text-xs font-mono text-slate-500">
-                        {p.retail_price != null ? formatNaira(p.retail_price) : ''}
-                        {p.cost_price != null && p.retail_price != null ? ' · ' : ''}
-                        {p.cost_price != null ? <span className="text-slate-400">Cost {formatNaira(p.cost_price)}</span> : ''}
+                    {p.retail_price != null && (
+                      <span className="text-xs font-mono font-semibold text-slate-700 bg-slate-50 border border-slate-200/60 rounded-lg px-2.5 py-1">
+                        {formatNaira(p.retail_price)}
                       </span>
                     )}
                     <span className="text-xs font-medium text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1">
@@ -910,8 +876,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
               <p><strong className="text-slate-900">SKU Code:</strong> <span className="font-mono uppercase">{sku}</span></p>
               <p><strong className="text-slate-900">Model Name:</strong> {modelName}</p>
               <p><strong className="text-slate-900">Category:</strong> {categoryBadge}</p>
-              {costPrice && <p><strong className="text-slate-900">Cost Price:</strong> ₦{Number(costPrice).toLocaleString()}</p>}
-              {retailPrice && <p><strong className="text-slate-900">Retail Price:</strong> ₦{Number(retailPrice).toLocaleString()}</p>}
+              {retailPrice && <p><strong className="text-slate-900">Selling Price:</strong> ₦{Number(retailPrice).toLocaleString()}</p>}
             </div>
           </div>
         }

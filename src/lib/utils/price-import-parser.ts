@@ -117,7 +117,7 @@ export async function parsePriceFile(file: File): Promise<PriceImportResult> {
         rows: [],
         errors: [{
           row_number: 1,
-          message: `Could not find any price columns. Expected cost: ${COST_ALIASES.slice(0, 4).join(', ')} or retail: ${RETAIL_ALIASES.slice(0, 4).join(', ')}. Found headers: ${headers.join(', ')}`,
+          message: `Could not find a price column. Expected a header such as: Price, Selling Price, Retail Price, or Amount. Found headers: ${headers.join(', ')}`,
         }],
         detected_columns: { sku: headers[skuIdx], cost: null, retail: null },
         total_rows: rawData.length - 1,
@@ -146,7 +146,7 @@ export async function parsePriceFile(file: File): Promise<PriceImportResult> {
       }
 
       const costPrice = costIdx !== -1 ? parseNumericValue(row[costIdx]) : undefined;
-      const retailPrice = retailIdx !== -1 ? parseNumericValue(row[retailIdx]) : undefined;
+      const retailPrice = retailIdx !== -1 ? parseNumericValue(row[retailIdx]) : (costIdx !== -1 ? costPrice : undefined);
 
       // Validate that at least one price is present
       if (costPrice === undefined && retailPrice === undefined) {

@@ -104,7 +104,6 @@ function NewInboundModal({
   const [quantity, setQuantity] = useState('');
   const [serialsText, setSerialsText] = useState('');
   const [notes, setNotes] = useState('');
-  const [purchasePrice, setPurchasePrice] = useState('');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('');
@@ -120,13 +119,6 @@ function NewInboundModal({
   // Determine if selected SKU is serialized
   const selectedProd = products.find((p) => p.sku === sku);
   const isSerialized = selectedProd ? selectedProd.is_serialized !== false : true;
-
-  // Auto-fill purchase price from product cost_price if available
-  useEffect(() => {
-    if (selectedProd?.cost_price != null) {
-      setPurchasePrice(String(selectedProd.cost_price));
-    }
-  }, [sku, selectedProd]);
 
   // Get the model group info for the selected group
   const selectedMG = modelGroups.find((mg) => mg.model_group === selectedModelGroup);
@@ -308,7 +300,6 @@ function NewInboundModal({
 
   function handleConfirmedSubmit() {
     startTransition(async () => {
-      const pPrice = purchasePrice ? parseFloat(purchasePrice) : undefined;
       if (mode === 'model-group') {
         const qty = parseInt(quantity, 10);
         const result = await createInboundByModelGroup({
@@ -317,7 +308,6 @@ function NewInboundModal({
           quantity: qty,
           user_id: userId,
           notes: notes || undefined,
-          purchase_price: pPrice,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
       } else if (mode === 'quantity') {
@@ -328,7 +318,6 @@ function NewInboundModal({
           quantity: qty,
           user_id: userId,
           notes: notes || undefined,
-          purchase_price: pPrice,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
       } else {
@@ -339,7 +328,6 @@ function NewInboundModal({
           serial_numbers: serials,
           user_id: userId,
           notes: notes || undefined,
-          purchase_price: pPrice,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
       }
@@ -655,35 +643,6 @@ function NewInboundModal({
             </div>
           )}
 
-          {/* Purchase Cost */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-medium text-slate-600">
-                Purchase / Cost Price (₦) <span className="text-slate-400 font-normal">(optional)</span>
-              </label>
-              {selectedProd?.cost_price != null && (
-                <span className="text-[10px] text-slate-400">
-                  Default SKU Cost: ₦{Number(selectedProd.cost_price).toLocaleString()}
-                </span>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3.5 top-2.5 text-sm font-semibold text-slate-400">₦</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={purchasePrice}
-                onChange={(e) => setPurchasePrice(e.target.value)}
-                placeholder={selectedProd?.cost_price ? String(selectedProd.cost_price) : 'e.g. 150000'}
-                className="w-full pl-8 pr-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 font-mono"
-              />
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Unit acquisition cost for this inbound shipment.
-            </p>
-          </div>
-
           {/* Notes */}
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Notes (optional)</label>
@@ -754,11 +713,6 @@ function NewInboundModal({
                 <p>
                   <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} (
                   {serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length} serial numbers)
-                </p>
-              )}
-              {purchasePrice && (
-                <p>
-                  <strong className="text-slate-900">Unit Cost:</strong> ₦{Number(purchasePrice).toLocaleString()}
                 </p>
               )}
             </div>
