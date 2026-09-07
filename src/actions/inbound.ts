@@ -10,7 +10,7 @@ import { Transaction } from '@/lib/types/database';
 
 // ── Helper: generate placeholder serial numbers ───────────────
 function generatePlaceholderSerial(sku: string, index: number): string {
-  const padded = String(index).padStart(4, '0');
+  const padded = String(index).padStart(6, '0');
   return `PENDING-${sku.toUpperCase()}-${Date.now()}-${padded}`;
 }
 
@@ -120,47 +120,118 @@ export async function createInboundByQuantity(data: {
   notes?: string;
   purchase_price?: number;
 }): Promise<{ data: Transaction | null; pending_count: number; error: string | null }> {
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   if (data.quantity <= 0) {
     return { data: null, pending_count: 0, error: 'Quantity must be greater than zero' };
   }
-  if (data.quantity > 10000) {
-    return { data: null, pending_count: 0, error: 'Maximum batch size is 10,000 units' };
+  if (data.quantity > 100000) {
+    return { data: null, pending_count: 0, error: 'Maximum batch size is 100,000 units' };
   }
 
-  const { data: rpcData, error: rpcError } = await supabase.rpc('inbound_by_quantity', {
-    p_sku: data.sku,
-    p_location_id: data.location_id,
-    p_user_id: data.user_id,
-    p_quantity: data.quantity,
-    p_notes: data.notes || '',
-    p_timestamp: Date.now(),
-  });
+  // 1. Get product info
+  const { data: product, error: prodError } = await supabase
+    .from('products')
+    .select('sku, is_serialized')
+    .eq('sku', data.sku)
+    .single();
 
-  if (rpcError) {
-    return { data: null, pending_count: 0, error: rpcError.message };
+  if (prodError || !product) {
+    return { data: null, pending_count: 0, error: `SKU "${data.sku}" does not exist` };
   }
 
-  const result = rpcData as { data: Transaction | null; pending_count: number; error: string | null };
+  // 2. Get location info
+  const { data: loc, error: locError } = await supabase
+    .from('locations')
+    .select('type')
+    .eq('id', data.location_id)
+    .single();
 
-  if (result.error) {
-    return { data: null, pending_count: 0, error: result.error };
+  if (locError || !loc) {
+    return { data: null, pending_count: 0, error: 'Location ID does not exist' };
   }
 
-  if (result.data && data.purchase_price != null) {
-    const txnId = (result.data as any).id;
-    await supabase.from('transaction_items').update({ purchase_price: data.purchase_price }).eq('transaction_id', txnId);
-    const { data: items } = await supabase.from('transaction_items').select('serial_number').eq('transaction_id', txnId);
-    if (items && items.length > 0) {
-      const serials = items.map((i: any) => i.serial_number);
-      await supabase.from('inventory_units').update({ purchase_price: data.purchase_price }).in('serial_number', serials);
+  const isSerialized = product.is_serialized !== false;
+  const initialStatus = isSerialized
+    ? 'PENDING_SERIAL'
+    : loc.type === 'BRANCH'
+    ? 'IN_BRANCH'
+    : 'IN_WAREHOUSE';
+
+  // 3. Formulate notes
+  const notesPrefix = `[${isSerialized ? 'QUANTITY' : 'NON-SERIALIZED'} UPLOAD - ${data.quantity.toLocaleString()} units]`;
+  const finalNotes = data.notes
+    ? `${notesPrefix} ${data.notes}`
+    : isSerialized
+    ? `${notesPrefix} Serial numbers to be assigned.`
+    : `${notesPrefix} Non-serialized inventory.`;
+
+  // 4. Create transaction
+  const { data: transaction, error: txnError } = await supabase
+    .from('transactions')
+    .insert({
+      type: 'INBOUND',
+      to_location_id: data.location_id,
+      user_id: data.user_id,
+      notes: finalNotes,
+    })
+    .select()
+    .single();
+
+  if (txnError || !transaction) {
+    return { data: null, pending_count: 0, error: `Failed to create transaction: ${txnError?.message}` };
+  }
+
+  // 5. Generate unique pseudo-serials with 6-digit zero padding (supports up to 999,999 units without collision)
+  const timestamp = Date.now();
+  const skuUpper = data.sku.toUpperCase();
+  const prefix = isSerialized ? `PENDING-${skuUpper}-${timestamp}` : `NS-${skuUpper}-${timestamp}`;
+  const serialNumbers: string[] = [];
+  for (let i = 1; i <= data.quantity; i++) {
+    serialNumbers.push(`${prefix}-${String(i).padStart(6, '0')}`);
+  }
+
+  // 6. Batch insert in chunks of 1,000
+  const CHUNK_SIZE = 1000;
+  for (let i = 0; i < serialNumbers.length; i += CHUNK_SIZE) {
+    const chunkSerials = serialNumbers.slice(i, i + CHUNK_SIZE);
+
+    const unitRows = chunkSerials.map((sn) => ({
+      serial_number: sn,
+      sku: data.sku,
+      location_id: data.location_id,
+      status: initialStatus,
+      purchase_price: data.purchase_price ?? null,
+    }));
+
+    const { error: unitsError } = await supabase.from('inventory_units').insert(unitRows);
+    if (unitsError) {
+      if (i === 0) {
+        await supabase.from('transactions').delete().eq('id', transaction.id);
+      }
+      return { data: null, pending_count: 0, error: `Failed to insert inventory units: ${unitsError.message}` };
+    }
+
+    const itemRows = chunkSerials.map((sn) => ({
+      transaction_id: transaction.id,
+      serial_number: sn,
+      purchase_price: data.purchase_price ?? null,
+    }));
+
+    const { error: itemsError } = await supabase.from('transaction_items').insert(itemRows);
+    if (itemsError) {
+      console.error('Failed to insert transaction items chunk:', itemsError.message);
     }
   }
 
   return {
-    data: result.data,
-    pending_count: result.pending_count,
+    data: transaction,
+    pending_count: isSerialized ? data.quantity : 0,
     error: null,
   };
 }
@@ -174,48 +245,114 @@ export async function createInboundByModelGroup(data: {
   notes?: string;
   purchase_price?: number;
 }): Promise<{ data: Transaction | null; pending_count: number; default_sku: string | null; error: string | null }> {
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   if (data.quantity <= 0) {
     return { data: null, pending_count: 0, default_sku: null, error: 'Quantity must be greater than zero' };
   }
-  if (data.quantity > 10000) {
-    return { data: null, pending_count: 0, default_sku: null, error: 'Maximum batch size is 10,000 units' };
+  if (data.quantity > 100000) {
+    return { data: null, pending_count: 0, default_sku: null, error: 'Maximum batch size is 100,000 units' };
   }
 
-  const { data: rpcData, error: rpcError } = await supabase.rpc('inbound_by_model_group', {
-    p_model_group: data.model_group,
-    p_location_id: data.location_id,
-    p_user_id: data.user_id,
-    p_quantity: data.quantity,
-    p_notes: data.notes || '',
-    p_timestamp: Date.now(),
-  });
+  // Find the default SKU (first alphabetically in the model group)
+  const { data: prods, error: prodError } = await supabase
+    .from('products')
+    .select('sku')
+    .eq('model_group', data.model_group)
+    .eq('is_serialized', true)
+    .order('sku', { ascending: true })
+    .limit(1);
 
-  if (rpcError) {
-    return { data: null, pending_count: 0, default_sku: null, error: rpcError.message };
+  const defaultSku = prods?.[0]?.sku;
+  if (!defaultSku || prodError) {
+    return {
+      data: null,
+      pending_count: 0,
+      default_sku: null,
+      error: `No serialized products found in model group "${data.model_group}"`,
+    };
   }
 
-  const result = rpcData as { data: Transaction | null; pending_count: number; default_sku: string | null; error: string | null };
+  // Validate location
+  const { data: loc, error: locError } = await supabase
+    .from('locations')
+    .select('type')
+    .eq('id', data.location_id)
+    .single();
 
-  if (result.error) {
-    return { data: null, pending_count: 0, default_sku: null, error: result.error };
+  if (locError || !loc) {
+    return { data: null, pending_count: 0, default_sku: null, error: 'Location ID does not exist' };
   }
 
-  if (result.data && data.purchase_price != null) {
-    const txnId = (result.data as any).id;
-    await supabase.from('transaction_items').update({ purchase_price: data.purchase_price }).eq('transaction_id', txnId);
-    const { data: items } = await supabase.from('transaction_items').select('serial_number').eq('transaction_id', txnId);
-    if (items && items.length > 0) {
-      const serials = items.map((i: any) => i.serial_number);
-      await supabase.from('inventory_units').update({ purchase_price: data.purchase_price }).in('serial_number', serials);
+  const notesPrefix = `[MODEL GROUP UPLOAD - ${data.model_group} - ${data.quantity.toLocaleString()} units]`;
+  const finalNotes = data.notes
+    ? `${notesPrefix} ${data.notes}`
+    : `${notesPrefix} SKU to be confirmed during serial assignment.`;
+
+  const { data: transaction, error: txnError } = await supabase
+    .from('transactions')
+    .insert({
+      type: 'INBOUND',
+      to_location_id: data.location_id,
+      user_id: data.user_id,
+      notes: finalNotes,
+    })
+    .select()
+    .single();
+
+  if (txnError || !transaction) {
+    return { data: null, pending_count: 0, default_sku: null, error: `Failed to create transaction: ${txnError?.message}` };
+  }
+
+  const timestamp = Date.now();
+  const skuUpper = defaultSku.toUpperCase();
+  const prefix = `PENDING-${skuUpper}-${timestamp}`;
+  const serialNumbers: string[] = [];
+  for (let i = 1; i <= data.quantity; i++) {
+    serialNumbers.push(`${prefix}-${String(i).padStart(6, '0')}`);
+  }
+
+  const CHUNK_SIZE = 1000;
+  for (let i = 0; i < serialNumbers.length; i += CHUNK_SIZE) {
+    const chunkSerials = serialNumbers.slice(i, i + CHUNK_SIZE);
+
+    const unitRows = chunkSerials.map((sn) => ({
+      serial_number: sn,
+      sku: defaultSku,
+      location_id: data.location_id,
+      status: 'PENDING_SERIAL' as const,
+      purchase_price: data.purchase_price ?? null,
+    }));
+
+    const { error: unitsError } = await supabase.from('inventory_units').insert(unitRows);
+    if (unitsError) {
+      if (i === 0) {
+        await supabase.from('transactions').delete().eq('id', transaction.id);
+      }
+      return { data: null, pending_count: 0, default_sku: null, error: `Failed to insert inventory units: ${unitsError.message}` };
+    }
+
+    const itemRows = chunkSerials.map((sn) => ({
+      transaction_id: transaction.id,
+      serial_number: sn,
+      purchase_price: data.purchase_price ?? null,
+    }));
+
+    const { error: itemsError } = await supabase.from('transaction_items').insert(itemRows);
+    if (itemsError) {
+      console.error('Failed to insert transaction items chunk:', itemsError.message);
     }
   }
 
   return {
-    data: result.data,
-    pending_count: result.pending_count,
-    default_sku: result.default_sku,
+    data: transaction,
+    pending_count: data.quantity,
+    default_sku: defaultSku,
     error: null,
   };
 }
