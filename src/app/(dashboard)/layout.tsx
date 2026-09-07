@@ -28,6 +28,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { signOut, getSession } from '@/actions/auth';
+import GlobalSearchBar from './components/global-search-bar';
 
 // ── Navigation Items ──────────────────────────────────────────
 const navItems = [
@@ -216,13 +217,8 @@ export default function DashboardLayout({
               <Menu className="w-5 h-5" />
             </button>
 
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search inventory, orders..."
-                className="w-64 lg:w-80 pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all"
-              />
+            <div className="hidden sm:block">
+              <GlobalSearchBar />
             </div>
           </div>
 
