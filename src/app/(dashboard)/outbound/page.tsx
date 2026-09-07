@@ -29,12 +29,16 @@ import {
   ChevronRight,
   ChevronLeft,
   Trash2,
+  Coins,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { reserveUnits, createOutboundTransaction, getFifoSerialsForQuantity, deleteOutboundTransaction } from '@/actions/outbound';
 import { uploadVerificationDoc, markTransactionVerified, getVerificationDocs, checkVerificationComplete } from '@/actions/verification';
 import { listProducts } from '@/actions/products';
 import { getFifoQueue } from '@/actions/inventory';
+import { formatNaira } from '@/lib/utils/currency';
 
 import ComboboxSelect from '../components/combobox-select';
 
@@ -51,9 +55,16 @@ type OutboundSummary = {
   item_count: number;
   sku: string;
   model_name: string;
+  customer_name?: string | null;
 };
 
-type Product = { sku: string; model_name: string; is_serialized?: boolean };
+type Product = {
+  sku: string;
+  model_name: string;
+  is_serialized?: boolean;
+  cost_price?: number | null;
+  retail_price?: number | null;
+};
 type Location = { id: string; name: string; type: string };
 
 const routeConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -228,12 +239,17 @@ function NewOutboundModal({
   const [route, setRoute] = useState<'TB' | 'B2B' | 'B2C' | ''>('');
   const [fromLocationId, setFromLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const [sku, setSku] = useState('');
   const [selectedSerials, setSelectedSerials] = useState<string[]>([]);
   const [manualSerial, setManualSerial] = useState('');
   const [nonSerializedQty, setNonSerializedQty] = useState('');
   const [fifoSuggestions, setFifoSuggestions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [itemPrices, setItemPrices] = useState<Record<string, string>>({});
+  const [serialSkuMap, setSerialSkuMap] = useState<Record<string, string>>({});
+  const [showIndividualPrices, setShowIndividualPrices] = useState<Record<string, boolean>>({});
+  const [bulkPriceInput, setBulkPriceInput] = useState<Record<string, string>>({});
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -268,10 +284,22 @@ function NewOutboundModal({
     const trimmed = sn.trim();
     if (!trimmed || selectedSerials.includes(trimmed)) return;
     setSelectedSerials((prev) => [...prev, trimmed]);
+    if (sku) {
+      setSerialSkuMap((prev) => ({ ...prev, [trimmed]: sku }));
+      const prod = products.find((p) => p.sku === sku);
+      if (prod?.retail_price != null) {
+        setItemPrices((prev) => ({ ...prev, [trimmed]: String(prod.retail_price) }));
+      }
+    }
   }
 
   function removeSerial(sn: string) {
     setSelectedSerials((prev) => prev.filter((s) => s !== sn));
+    setItemPrices((prev) => {
+      const next = { ...prev };
+      delete next[sn];
+      return next;
+    });
   }
 
   function handleSubmit() {
@@ -279,6 +307,10 @@ function NewOutboundModal({
     if (!route) { setError('Select a route'); return; }
     if (!fromLocationId) { setError('Select source location'); return; }
     if (route === 'TB' && !toLocationId) { setError('Select destination branch for Transfer'); return; }
+    if ((route === 'B2B' || route === 'B2C') && !customerName.trim()) {
+      setError('Please enter a customer or client name');
+      return;
+    }
     if (selectedSerials.length === 0) { setError('Add at least one serial number'); return; }
 
     startTransition(async () => {
@@ -287,6 +319,14 @@ function NewOutboundModal({
         setError(`Could not reserve: ${reserveResult.errors.map((e) => `${e.serial_number}: ${e.error}`).join(', ')}`);
         return;
       }
+
+      const pricesArray = Object.entries(itemPrices)
+        .filter(([sn, p]) => selectedSerials.includes(sn) && p.trim() !== '')
+        .map(([sn, p]) => ({
+          serial_number: sn,
+          sale_price: parseFloat(p) || 0,
+        }));
+
       const result = await createOutboundTransaction({
         route: route as 'TB' | 'B2B' | 'B2C',
         from_location_id: fromLocationId,
@@ -294,6 +334,8 @@ function NewOutboundModal({
         serial_numbers: selectedSerials,
         user_id: userId,
         notes: notes || undefined,
+        customer_name: (route === 'B2B' || route === 'B2C') ? customerName.trim() : undefined,
+        item_prices: (route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined,
       });
       if (result.error) { setError(result.error); return; }
       onSuccess();
@@ -371,12 +413,45 @@ function NewOutboundModal({
                 )}
               </div>
 
+              {(route === 'B2B' || route === 'B2C') && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Customer / Client Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="e.g. Dangote Industries Ltd, John Doe"
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Name of the customer receiving this order. Recorded on the sales log.
+                  </p>
+                </div>
+              )}
+
               <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder="Notes (optional)"
                 className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
 
               <button
-                onClick={() => { if (!route || !fromLocationId) { setError('Select route and source location'); return; } setError(null); setStep(2); }}
+                onClick={() => {
+                  if (!route || !fromLocationId) {
+                    setError('Select route and source location');
+                    return;
+                  }
+                  if (route === 'TB' && !toLocationId) {
+                    setError('Select destination branch for Transfer');
+                    return;
+                  }
+                  if ((route === 'B2B' || route === 'B2C') && !customerName.trim()) {
+                    setError('Please enter customer/client name for B2B/B2C sales');
+                    return;
+                  }
+                  setError(null);
+                  setStep(2);
+                }}
                 className="w-full py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
               >
                 Next: Add Items →
@@ -404,6 +479,16 @@ function NewOutboundModal({
                   });
                   return next;
                 });
+                const newSkuMap: Record<string, string> = {};
+                const newPrices: Record<string, string> = {};
+                result.serial_numbers.forEach((sn) => {
+                  newSkuMap[sn] = sku;
+                  if (selectedProd?.retail_price != null) {
+                    newPrices[sn] = String(selectedProd.retail_price);
+                  }
+                });
+                setSerialSkuMap((prev) => ({ ...prev, ...newSkuMap }));
+                setItemPrices((prev) => ({ ...prev, ...newPrices }));
                 setNonSerializedQty('');
               }
             };
@@ -589,10 +674,152 @@ function NewOutboundModal({
               <h3 className="text-sm font-semibold text-slate-700">Confirm & Create</h3>
               <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-slate-500">Route</span><span className={`font-semibold px-2 py-0.5 rounded-full text-xs ${routeConfig[route]?.color}`}>{routeConfig[route]?.label}</span></div>
+                {(route === 'B2B' || route === 'B2C') && customerName && (
+                  <div className="flex justify-between"><span className="text-slate-500">Customer</span><span className="font-semibold text-slate-800">{customerName}</span></div>
+                )}
                 <div className="flex justify-between"><span className="text-slate-500">From</span><span className="font-medium">{locations.find((l) => l.id === fromLocationId)?.name}</span></div>
                 {toLocationId && <div className="flex justify-between"><span className="text-slate-500">To</span><span className="font-medium">{locations.find((l) => l.id === toLocationId)?.name}</span></div>}
                 <div className="flex justify-between"><span className="text-slate-500">Units</span><span className="font-bold">{selectedSerials.length}</span></div>
               </div>
+
+              {(route === 'B2B' || route === 'B2C') && (
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                      <Coins className="w-4 h-4 text-emerald-600" />
+                      <span>Sales Pricing & Item Rates (₦)</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block">Total Order Value</span>
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full font-mono">
+                        {formatNaira(
+                          selectedSerials.reduce((sum, sn) => {
+                            const val = parseFloat(itemPrices[sn] || '0');
+                            return sum + (isNaN(val) ? 0 : val);
+                          }, 0)
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    Default prices are auto-populated from SKU retail prices. You can edit individual item rates or bulk-apply a price for this shipment.
+                  </p>
+
+                  <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                    {/* Render per SKU group */}
+                    {Object.entries(
+                      selectedSerials.reduce((acc, sn) => {
+                        const itemSku = serialSkuMap[sn] || (sn.startsWith('NS-') ? (sn.split('-')[1] || '') : '');
+                        const key = itemSku || '_other';
+                        if (!acc[key]) acc[key] = [];
+                        acc[key].push(sn);
+                        return acc;
+                      }, {} as Record<string, string[]>)
+                    ).map(([groupSku, serials]) => {
+                      const prod = products.find((p) => p.sku === groupSku);
+                      const isExpanded = showIndividualPrices[groupSku];
+                      const groupSubtotal = serials.reduce((sum, sn) => {
+                        const val = parseFloat(itemPrices[sn] || '0');
+                        return sum + (isNaN(val) ? 0 : val);
+                      }, 0);
+
+                      const applyBulkPrice = (priceStr: string) => {
+                        if (!priceStr) return;
+                        setItemPrices((prev) => {
+                          const updated = { ...prev };
+                          serials.forEach((sn) => {
+                            updated[sn] = priceStr;
+                          });
+                          return updated;
+                        });
+                      };
+
+                      return (
+                        <div key={groupSku} className="border border-slate-200 rounded-xl bg-slate-50/50 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-800">
+                                {prod?.model_name || groupSku}{' '}
+                                <span className="font-mono text-[10px] text-slate-400 font-normal">({groupSku})</span>
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                {serials.length} unit{serials.length > 1 ? 's' : ''} · Subtotal: <strong className="text-emerald-700 font-mono">{formatNaira(groupSubtotal)}</strong>
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowIndividualPrices((prev) => ({
+                                  ...prev,
+                                  [groupSku]: !prev[groupSku],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                            >
+                              {isExpanded ? (
+                                <>Hide items <ChevronUp className="w-3.5 h-3.5" /></>
+                              ) : (
+                                <>Edit items ({serials.length}) <ChevronDown className="w-3.5 h-3.5" /></>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Bulk apply input for this SKU */}
+                          <div className="flex items-center gap-2 pt-1">
+                            <div className="relative flex-1">
+                              <span className="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono">₦</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={bulkPriceInput[groupSku] ?? ''}
+                                onChange={(e) =>
+                                  setBulkPriceInput((prev) => ({ ...prev, [groupSku]: e.target.value }))
+                                }
+                                placeholder={`Set price for all ${serials.length} units`}
+                                className="w-full pl-6 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => applyBulkPrice(bulkPriceInput[groupSku])}
+                              className="px-2.5 py-1.5 text-xs font-medium bg-slate-200 text-slate-700 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors"
+                            >
+                              Apply
+                            </button>
+                          </div>
+
+                          {/* Collapsible individual item prices */}
+                          {isExpanded && (
+                            <div className="mt-2 pt-2 border-t border-slate-200 space-y-1.5 max-h-36 overflow-y-auto">
+                              {serials.map((sn) => (
+                                <div key={sn} className="flex items-center justify-between gap-2 text-xs bg-white px-2.5 py-1 rounded-lg border border-slate-100">
+                                  <span className="font-mono text-slate-600 truncate max-w-[140px] text-[11px]">{sn}</span>
+                                  <div className="relative w-32">
+                                    <span className="absolute left-2 top-1 text-slate-400 font-mono text-[10px]">₦</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={itemPrices[sn] ?? ''}
+                                      onChange={(e) =>
+                                        setItemPrices((prev) => ({ ...prev, [sn]: e.target.value }))
+                                      }
+                                      placeholder="0.00"
+                                      className="w-full pl-5 pr-1.5 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-right"
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {(route === 'B2B' || route === 'B2C') && (
                 <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-800">
@@ -658,6 +885,7 @@ export default function OutboundPage() {
         created_at,
         verified,
         notes,
+        customer_name,
         from_loc:locations!from_location_id(name),
         to_loc:locations!to_location_id(name),
         profiles(full_name),
@@ -687,8 +915,9 @@ export default function OutboundPage() {
           created_at: t.created_at,
           verified: t.verified,
           notes: t.notes,
+          customer_name: t.customer_name || null,
           from_name: t.from_loc?.name || 'Warehouse',
-          to_name: t.to_loc?.name || 'Customer / B2B',
+          to_name: t.to_loc?.name || t.customer_name || 'Customer / B2B',
           user_name: t.profiles?.full_name || 'System',
           item_count: items.length,
           sku,
@@ -805,6 +1034,11 @@ export default function OutboundPage() {
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-slate-700">{txn.to_name}</span>
                           <span className="text-xs text-slate-400 mt-0.5">From: {txn.from_name}</span>
+                          {txn.customer_name && txn.customer_name !== txn.to_name && (
+                            <span className="text-[11px] font-semibold text-violet-600 mt-0.5 flex items-center gap-1">
+                              <User className="w-3 h-3" /> {txn.customer_name}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="p-4">

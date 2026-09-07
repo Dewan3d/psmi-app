@@ -25,6 +25,7 @@ import {
   ChevronDown,
   Zap,
   ArrowLeftRight,
+  TrendingUp,
 } from 'lucide-react';
 import { signOut, getSession } from '@/actions/auth';
 
@@ -33,6 +34,7 @@ const navItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Inbound', href: '/inbound', icon: PackageOpen },
   { label: 'Outbound', href: '/outbound', icon: Truck },
+  { label: 'Sales', href: '/sales', icon: TrendingUp },
   { label: 'Inventory', href: '/inventory', icon: Boxes },
   { label: 'SKU Swap', href: '/sku-swap', icon: ArrowLeftRight },
   { label: 'Settings', href: '/settings', icon: Settings },

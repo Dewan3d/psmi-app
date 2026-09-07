@@ -20,6 +20,7 @@ export async function createInboundTransaction(data: {
   sku: string;
   user_id: string;
   notes?: string;
+  purchase_price?: number;
 }): Promise<{ data: Transaction | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -74,6 +75,7 @@ export async function createInboundTransaction(data: {
     sku: data.sku,
     location_id: data.location_id,
     status: 'IN_WAREHOUSE' as const,
+    purchase_price: data.purchase_price ?? null,
   }));
 
   const { error: unitsError } = await supabase
@@ -92,6 +94,7 @@ export async function createInboundTransaction(data: {
   const itemRows = data.serial_numbers.map((sn) => ({
     transaction_id: transaction.id,
     serial_number: sn.trim(),
+    purchase_price: data.purchase_price ?? null,
   }));
 
   const { error: itemsError } = await supabase
@@ -114,6 +117,7 @@ export async function createInboundByQuantity(data: {
   quantity: number;
   user_id: string;
   notes?: string;
+  purchase_price?: number;
 }): Promise<{ data: Transaction | null; pending_count: number; error: string | null }> {
   const supabase = await createClient();
 
@@ -143,6 +147,16 @@ export async function createInboundByQuantity(data: {
     return { data: null, pending_count: 0, error: result.error };
   }
 
+  if (result.data && data.purchase_price != null) {
+    const txnId = (result.data as any).id;
+    await supabase.from('transaction_items').update({ purchase_price: data.purchase_price }).eq('transaction_id', txnId);
+    const { data: items } = await supabase.from('transaction_items').select('serial_number').eq('transaction_id', txnId);
+    if (items && items.length > 0) {
+      const serials = items.map((i: any) => i.serial_number);
+      await supabase.from('inventory_units').update({ purchase_price: data.purchase_price }).in('serial_number', serials);
+    }
+  }
+
   return {
     data: result.data,
     pending_count: result.pending_count,
@@ -157,6 +171,7 @@ export async function createInboundByModelGroup(data: {
   quantity: number;
   user_id: string;
   notes?: string;
+  purchase_price?: number;
 }): Promise<{ data: Transaction | null; pending_count: number; default_sku: string | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -184,6 +199,16 @@ export async function createInboundByModelGroup(data: {
 
   if (result.error) {
     return { data: null, pending_count: 0, default_sku: null, error: result.error };
+  }
+
+  if (result.data && data.purchase_price != null) {
+    const txnId = (result.data as any).id;
+    await supabase.from('transaction_items').update({ purchase_price: data.purchase_price }).eq('transaction_id', txnId);
+    const { data: items } = await supabase.from('transaction_items').select('serial_number').eq('transaction_id', txnId);
+    if (items && items.length > 0) {
+      const serials = items.map((i: any) => i.serial_number);
+      await supabase.from('inventory_units').update({ purchase_price: data.purchase_price }).in('serial_number', serials);
+    }
   }
 
   return {

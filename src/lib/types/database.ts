@@ -54,6 +54,8 @@ export interface Product {
   image_url?: string | null;
   barcode?: string | null;
   model_group?: string | null;
+  cost_price?: number | null;
+  retail_price?: number | null;
   created_at: string;
 }
 
@@ -76,6 +78,7 @@ export interface Transaction {
   user_id: string;
   notes: string | null;
   verified: boolean;
+  customer_name?: string | null;
   created_at: string;
 }
 
@@ -83,6 +86,8 @@ export interface TransactionItem {
   id: string;
   transaction_id: string;
   serial_number: string;
+  sale_price?: number | null;
+  purchase_price?: number | null;
   created_at: string;
 }
 
@@ -147,6 +152,26 @@ export interface ModelGroup {
   skus: { sku: string; model_name: string }[];
 }
 
+export interface SaleRecord {
+  transaction_id: string;
+  tracking_number: string | null;
+  route: 'B2B' | 'B2C';
+  customer_name: string | null;
+  created_at: string;
+  verified: boolean;
+  user_name: string;
+  items: {
+    serial_number: string;
+    sku: string;
+    model_name: string;
+    sale_price: number | null;
+    cost_price: number | null;
+  }[];
+  total_sale: number;
+  total_cost: number;
+  profit: number;
+}
+
 export interface SkuSwapResult {
   serial_number: string;
   old_sku: string;
@@ -204,6 +229,8 @@ export interface Database {
           created_at?: string;
           low_stock_threshold?: number;
           model_group?: string | null;
+          cost_price?: number | null;
+          retail_price?: number | null;
         };
         Update: Partial<Product>;
       };
@@ -229,6 +256,7 @@ export interface Database {
           created_at?: string;
           tracking_number?: string;
           verified?: boolean;
+          customer_name?: string | null;
         };
         Update: Partial<Omit<Transaction, 'id'>>;
       };
@@ -237,6 +265,8 @@ export interface Database {
         Insert: Omit<TransactionItem, 'id' | 'created_at'> & {
           id?: string;
           created_at?: string;
+          sale_price?: number | null;
+          purchase_price?: number | null;
         };
         Update: Partial<Omit<TransactionItem, 'id'>>;
       };

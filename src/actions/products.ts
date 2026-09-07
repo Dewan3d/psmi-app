@@ -17,6 +17,8 @@ export async function createProduct(data: {
   image_url?: string;
   barcode?: string;
   model_group?: string;
+  cost_price?: number;
+  retail_price?: number;
 }): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -32,6 +34,8 @@ export async function createProduct(data: {
       image_url: data.image_url?.trim() || null,
       barcode: data.barcode?.trim() || null,
       model_group: data.model_group?.trim() || null,
+      cost_price: data.cost_price ?? null,
+      retail_price: data.retail_price ?? null,
     })
     .select()
     .single();
@@ -57,6 +61,8 @@ export async function updateProduct(
     image_url?: string;
     barcode?: string;
     model_group?: string | null;
+    cost_price?: number | null;
+    retail_price?: number | null;
   }
 ): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createClient();
@@ -70,6 +76,8 @@ export async function updateProduct(
   if (data.image_url !== undefined) updateData.image_url = data.image_url.trim() || null;
   if (data.barcode !== undefined) updateData.barcode = data.barcode.trim() || null;
   if (data.model_group !== undefined) updateData.model_group = data.model_group?.trim() || null;
+  if (data.cost_price !== undefined) updateData.cost_price = data.cost_price;
+  if (data.retail_price !== undefined) updateData.retail_price = data.retail_price;
 
   const { data: product, error } = await supabase
     .from('products')
@@ -182,4 +190,61 @@ export async function listModelGroups(): Promise<{
   );
 
   return { data: groups, error: null };
+}
+
+// ── Bulk update product prices from spreadsheet import ────────
+export async function bulkUpdatePrices(
+  updates: { sku: string; cost_price?: number; retail_price?: number }[]
+): Promise<{
+  updated: number;
+  skipped: { sku: string; reason: string }[];
+  errors: string[];
+}> {
+  const supabase = await createClient();
+
+  const skipped: { sku: string; reason: string }[] = [];
+  const errors: string[] = [];
+  let updated = 0;
+
+  // Fetch all existing SKUs for validation
+  const { data: existingProducts, error: fetchError } = await supabase
+    .from('products')
+    .select('sku');
+
+  if (fetchError) {
+    return { updated: 0, skipped: [], errors: [`Failed to fetch products: ${fetchError.message}`] };
+  }
+
+  const existingSkus = new Set((existingProducts || []).map((p) => p.sku.toUpperCase()));
+
+  for (const update of updates) {
+    const skuUpper = update.sku.toUpperCase().trim();
+
+    if (!existingSkus.has(skuUpper)) {
+      skipped.push({ sku: update.sku, reason: 'SKU not found in catalogue' });
+      continue;
+    }
+
+    const updateData: Record<string, any> = {};
+    if (update.cost_price !== undefined) updateData.cost_price = update.cost_price;
+    if (update.retail_price !== undefined) updateData.retail_price = update.retail_price;
+
+    if (Object.keys(updateData).length === 0) {
+      skipped.push({ sku: update.sku, reason: 'No price values provided' });
+      continue;
+    }
+
+    const { error: updateError } = await supabase
+      .from('products')
+      .update(updateData)
+      .eq('sku', skuUpper);
+
+    if (updateError) {
+      errors.push(`Failed to update ${update.sku}: ${updateError.message}`);
+    } else {
+      updated++;
+    }
+  }
+
+  return { updated, skipped, errors };
 }

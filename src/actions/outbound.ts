@@ -71,6 +71,8 @@ export async function createOutboundTransaction(data: {
   serial_numbers: string[];
   user_id: string;
   notes?: string;
+  customer_name?: string;
+  item_prices?: { serial_number: string; sale_price: number }[];
 }): Promise<{ data: Transaction | null; error: string | null }> {
   const supabase = await createClient();
 
@@ -103,6 +105,7 @@ export async function createOutboundTransaction(data: {
       to_location_id: data.to_location_id || null,
       user_id: data.user_id,
       notes: data.notes || null,
+      customer_name: data.customer_name || null,
     })
     .select()
     .single();
@@ -115,9 +118,18 @@ export async function createOutboundTransaction(data: {
   }
 
   // 2. Create transaction items
+  // Build a price lookup map for quick access
+  const priceMap = new Map<string, number>();
+  if (data.item_prices) {
+    for (const ip of data.item_prices) {
+      priceMap.set(ip.serial_number.trim(), ip.sale_price);
+    }
+  }
+
   const itemRows = data.serial_numbers.map((sn) => ({
     transaction_id: transaction.id,
     serial_number: sn.trim(),
+    sale_price: priceMap.get(sn.trim()) ?? null,
   }));
 
   const { error: itemsError } = await supabase

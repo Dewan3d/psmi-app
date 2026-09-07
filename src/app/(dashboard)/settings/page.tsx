@@ -30,13 +30,15 @@ import {
   Sparkles,
   Ban,
   Search,
+  Upload,
 } from 'lucide-react';
-import { createProduct, updateProduct, deleteProduct, listProducts } from '@/actions/products';
+import { createProduct, updateProduct, deleteProduct, listProducts, bulkUpdatePrices } from '@/actions/products';
 import { createLocation, updateLocation, listLocations } from '@/actions/locations';
 import { listUsers, updateUserRole, assignUserLocation, inviteUser } from '@/actions/users';
 import { getSession } from '@/actions/auth';
 import { listInboundTransactions, deleteInboundTransaction } from '@/actions/inbound';
 import { UserRole, ProductCategory } from '@/lib/types/database';
+import { formatNaira } from '@/lib/utils/currency';
 
 import ComboboxSelect from '../components/combobox-select';
 
@@ -48,6 +50,8 @@ type Product = {
   is_serialized: boolean;
   category_badge: ProductCategory;
   model_group?: string | null;
+  cost_price?: number | null;
+  retail_price?: number | null;
   created_at: string;
 };
 
@@ -89,9 +93,20 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
   const [editThreshold, setEditThreshold] = useState('');
   const [editCategoryBadge, setEditCategoryBadge] = useState<ProductCategory>('POWER_STATION');
   const [editModelGroup, setEditModelGroup] = useState('');
+  const [editCostPrice, setEditCostPrice] = useState('');
+  const [editRetailPrice, setEditRetailPrice] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [costPrice, setCostPrice] = useState('');
+  const [retailPrice, setRetailPrice] = useState('');
+
+  // Import Prices state
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any>(null);
+  const [importResult, setImportResult] = useState<{ updated: number; skipped: { sku: string; reason: string }[]; errors: string[] } | null>(null);
+  const [importing, startImporting] = useTransition();
 
   // Distinct model groups from existing products
   const existingModelGroups = [...new Set(products.map((p) => p.model_group).filter(Boolean))] as string[];
@@ -133,6 +148,8 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         is_serialized: isSerialized,
         category_badge: categoryBadge,
         model_group: modelGroup || undefined,
+        cost_price: costPrice ? parseFloat(costPrice) : undefined,
+        retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
       });
       if (result.error) {
         setError(result.error);
@@ -145,6 +162,8 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       setIsSerialized(true);
       setCategoryBadge('POWER_STATION');
       setModelGroup('');
+      setCostPrice('');
+      setRetailPrice('');
       setShowForm(false);
       await loadProducts();
     });
@@ -157,6 +176,8 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     setEditThreshold(String(p.low_stock_threshold));
     setEditCategoryBadge(p.category_badge || 'POWER_STATION');
     setEditModelGroup(p.model_group || '');
+    setEditCostPrice(p.cost_price != null ? String(p.cost_price) : '');
+    setEditRetailPrice(p.retail_price != null ? String(p.retail_price) : '');
   }
 
   function handleSaveEdit(skuToEdit: string) {
@@ -167,6 +188,8 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         low_stock_threshold: parseInt(editThreshold, 10) || 10,
         category_badge: editCategoryBadge,
         model_group: editModelGroup || null,
+        cost_price: editCostPrice ? parseFloat(editCostPrice) : null,
+        retail_price: editRetailPrice ? parseFloat(editRetailPrice) : null,
       });
       setEditingSku(null);
       await loadProducts();
@@ -235,8 +258,164 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
               <Plus className="w-3.5 h-3.5" /> New SKU
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={() => { setShowImport(!showImport); setImportPreview(null); setImportResult(null); setImportFile(null); }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors cursor-pointer shadow-sm flex-shrink-0"
+            >
+              <Upload className="w-3.5 h-3.5" /> Import Prices
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Import Prices Panel */}
+      {showImport && (
+        <div className="px-5 py-4 border-b border-slate-100 bg-emerald-50/30 animate-fade-in">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Bulk Price Import</p>
+                <p className="text-xs text-slate-500">Upload an Excel (.xlsx) or CSV file with SKU and price columns</p>
+              </div>
+              <button onClick={() => setShowImport(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* File Drop Zone */}
+            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-300 rounded-xl bg-white/60 hover:bg-white cursor-pointer transition-colors">
+              <Upload className="w-5 h-5 text-emerald-500 mb-1" />
+              <span className="text-xs text-slate-500">{importFile ? importFile.name : 'Drop file here or click to browse'}</span>
+              <span className="text-[10px] text-slate-400">.xlsx, .xls, or .csv</span>
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setImportFile(file);
+                  setImportResult(null);
+                  try {
+                    const { parsePriceFile } = await import('@/lib/utils/price-import-parser');
+                    const result = await parsePriceFile(file);
+                    // Match against existing products
+                    const existingSkuSet = new Set(products.map((p) => p.sku.toUpperCase()));
+                    const preview = {
+                      ...result,
+                      rows: result.rows.map((r) => ({
+                        ...r,
+                        matched: existingSkuSet.has(r.sku.toUpperCase()),
+                      })),
+                    };
+                    setImportPreview(preview);
+                  } catch (err) {
+                    setImportPreview({ rows: [], errors: [{ row_number: 0, message: 'Failed to parse file' }], detected_columns: { sku: null, cost: null, retail: null }, total_rows: 0 });
+                  }
+                }}
+              />
+            </label>
+
+            {/* Preview Table */}
+            {importPreview && importPreview.rows.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-slate-600">
+                    {importPreview.rows.filter((r: any) => r.matched).length} of {importPreview.rows.length} SKU(s) matched
+                    {importPreview.detected_columns.cost && ` · Cost: "${importPreview.detected_columns.cost}"`}
+                    {importPreview.detected_columns.retail && ` · Retail: "${importPreview.detected_columns.retail}"`}
+                  </p>
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold text-slate-500">SKU</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Cost Price</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Retail Price</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {importPreview.rows.slice(0, 50).map((row: any, i: number) => (
+                        <tr key={i} className={row.matched ? '' : 'bg-amber-50/50'}>
+                          <td className="px-3 py-1.5 font-mono font-medium text-slate-800">{row.sku}</td>
+                          <td className="px-3 py-1.5 font-mono text-slate-600 text-right">{row.cost_price != null ? `₦${row.cost_price.toLocaleString()}` : '—'}</td>
+                          <td className="px-3 py-1.5 font-mono text-slate-600 text-right">{row.retail_price != null ? `₦${row.retail_price.toLocaleString()}` : '—'}</td>
+                          <td className="px-3 py-1.5 text-center">
+                            {row.matched ? (
+                              <span className="text-emerald-600 font-semibold">✓</span>
+                            ) : (
+                              <span className="text-amber-600 font-semibold" title="SKU not found in catalogue">⚠</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  {importPreview.rows.length > 50 && (
+                    <span className="text-[10px] text-slate-400">Showing first 50 of {importPreview.rows.length} rows</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      const matched = importPreview.rows.filter((r: any) => r.matched);
+                      if (matched.length === 0) return;
+                      startImporting(async () => {
+                        const result = await bulkUpdatePrices(
+                          matched.map((r: any) => ({
+                            sku: r.sku,
+                            cost_price: r.cost_price,
+                            retail_price: r.retail_price,
+                          }))
+                        );
+                        setImportResult(result);
+                        if (result.updated > 0) await loadProducts();
+                      });
+                    }}
+                    disabled={importing || importPreview.rows.filter((r: any) => r.matched).length === 0}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors ml-auto"
+                  >
+                    {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Apply {importPreview.rows.filter((r: any) => r.matched).length} Price Update(s)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Parse Errors */}
+            {importPreview && importPreview.errors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 space-y-0.5">
+                {importPreview.errors.map((e: any, i: number) => (
+                  <p key={i}>Row {e.row_number}: {e.message}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Import Result */}
+            {importResult && (
+              <div className={`p-3 rounded-xl text-xs ${importResult.errors.length > 0 ? 'bg-amber-50 border border-amber-100' : 'bg-emerald-50 border border-emerald-100'}`}>
+                <p className="font-semibold text-emerald-800">✓ Updated prices for {importResult.updated} product(s)</p>
+                {importResult.skipped.length > 0 && (
+                  <div className="mt-1 text-amber-700">
+                    <p className="font-medium">Skipped:</p>
+                    {importResult.skipped.map((s, i) => (
+                      <p key={i}>{s.sku}: {s.reason}</p>
+                    ))}
+                  </div>
+                )}
+                {importResult.errors.length > 0 && (
+                  <div className="mt-1 text-red-700">
+                    {importResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* New SKU form */}
       {showForm && (
@@ -342,6 +521,36 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   ))}
                 </datalist>
                 <p className="text-[10px] text-slate-400 mt-0.5">Group SKU variants of the same device</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Cost Price (₦)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
+                  placeholder="e.g. 150000"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Retail Price (₦)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={retailPrice}
+                  onChange={(e) => setRetailPrice(e.target.value)}
+                  placeholder="e.g. 200000"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                />
               </div>
             </div>
             {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
@@ -480,6 +689,37 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     </datalist>
                   </div>
                 </div>
+                {/* Pricing Edit Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Cost Price (₦)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editCostPrice}
+                      onChange={(e) => setEditCostPrice(e.target.value)}
+                      placeholder="e.g. 150000"
+                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Retail Price (₦)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editRetailPrice}
+                      onChange={(e) => setEditRetailPrice(e.target.value)}
+                      placeholder="e.g. 200000"
+                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                    />
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -539,6 +779,13 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
 
                   {/* Alert Badge + Action Buttons (Bottom Right) */}
                   <div className="flex items-center gap-3 flex-shrink-0">
+                    {(p.cost_price != null || p.retail_price != null) && (
+                      <span className="text-xs font-mono text-slate-500">
+                        {p.retail_price != null ? formatNaira(p.retail_price) : ''}
+                        {p.cost_price != null && p.retail_price != null ? ' · ' : ''}
+                        {p.cost_price != null ? <span className="text-slate-400">Cost {formatNaira(p.cost_price)}</span> : ''}
+                      </span>
+                    )}
                     <span className="text-xs font-medium text-slate-500 bg-slate-100 rounded-lg px-2.5 py-1">
                       Alert at {p.low_stock_threshold}
                     </span>
