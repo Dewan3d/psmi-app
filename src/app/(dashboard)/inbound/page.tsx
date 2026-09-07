@@ -41,6 +41,7 @@ import { createClient } from '@/lib/supabase/client';
 
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
+import FeedbackModal from '../components/feedback-modal';
 
 type InboundSummary = {
   id: string;
@@ -796,17 +797,45 @@ export default function InboundPage() {
   }
 
   const [txnToDelete, setTxnToDelete] = useState<InboundSummary | null>(null);
+  const [feedback, setFeedback] = useState<{
+    isOpen: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: React.ReactNode;
+  }>({
+    isOpen: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
 
   async function handleConfirmDelete() {
     if (!txnToDelete) return;
+    const target = txnToDelete;
     setIsDeleteLoading(true);
-    const res = await deleteInboundTransaction(txnToDelete.id);
+    const res = await deleteInboundTransaction(target.id);
     setIsDeleteLoading(false);
+    setTxnToDelete(null);
+
     if (res.error) {
-      alert(res.error);
+      setFeedback({
+        isOpen: true,
+        type: 'error',
+        title: 'Delete Failed',
+        message: res.error,
+      });
     } else {
-      setTxnToDelete(null);
       await fetchTransactions();
+      setFeedback({
+        isOpen: true,
+        type: 'success',
+        title: 'Receipt Deleted Successfully',
+        message: (
+          <span>
+            Inbound receipt <strong className="font-mono text-slate-850">{target.tracking_number || target.id}</strong> and all associated units ({target.total_items} units of {target.model_name || target.sku}) have been completely deleted from warehouse stock.
+          </span>
+        ),
+      });
     }
   }
 
@@ -821,6 +850,12 @@ export default function InboundPage() {
           onSuccess={() => {
             setShowModal(false);
             fetchTransactions();
+            setFeedback({
+              isOpen: true,
+              type: 'success',
+              title: 'Inbound Receipt Created',
+              message: 'The new inbound shipment has been successfully recorded in inventory.',
+            });
           }}
         />
       )}
@@ -847,6 +882,15 @@ export default function InboundPage() {
           </div>
         }
         confirmText="Yes, Delete Receipt"
+      />
+
+      {/* Feedback (Success / Error) Modal */}
+      <FeedbackModal
+        isOpen={feedback.isOpen}
+        onClose={() => setFeedback((prev) => ({ ...prev, isOpen: false }))}
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
       />
 
       {/* ── Header ─────────────────────────────────────────── */}
@@ -1015,14 +1059,14 @@ export default function InboundPage() {
                       <div className="flex items-center justify-end gap-3">
                         <Link
                           href={`/inbound/${txn.id}`}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50/60 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors"
                         >
                           View <ChevronRight className="w-3.5 h-3.5" />
                         </Link>
                         <button
                           onClick={() => setTxnToDelete(txn)}
                           disabled={isDeleteLoading}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
                           title="Delete inbound receipt"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

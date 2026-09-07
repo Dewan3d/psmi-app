@@ -5,6 +5,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { Transaction } from '@/lib/types/database';
 
 // ── Helper: generate placeholder serial numbers ───────────────
@@ -504,23 +505,42 @@ export async function listInboundTransactions(): Promise<{
   return { data: transactions, error: null };
 }
 
-// ── Delete inbound receipt (Pending or un-dispatched accessories) ────
-export async function deleteInboundTransaction(transactionId: string): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+// ── Delete inbound receipt (Pending or un-dispatched units) ──────────
+export async function deleteInboundTransaction(transactionId: string): Promise<{ error: string | null; deletedCount?: number }> {
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
-  // 1. Fetch transaction items for this transaction
+  // 1. Resolve target ID in case transactionId was passed as tracking_number
+  let targetId = transactionId;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(transactionId);
+  if (!isUuid) {
+    const { data: txnByTracking } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('tracking_number', transactionId)
+      .single();
+    if (txnByTracking) {
+      targetId = txnByTracking.id;
+    }
+  }
+
+  // 2. Fetch transaction items for this transaction
   const { data: items, error: fetchError } = await supabase
     .from('transaction_items')
     .select('serial_number')
-    .eq('transaction_id', transactionId);
+    .eq('transaction_id', targetId);
 
   if (fetchError) {
-    return { error: fetchError.message };
+    return { error: `Failed to find receipt items: ${fetchError.message}` };
   }
 
-  const serials = (items || []).map((i) => i.serial_number);
+  const serials = (items || []).map((i: any) => i.serial_number);
 
-  // 2. Safety check: make sure no units from this inbound have already been sold, reserved, or dispatched
+  // 3. Safety check: make sure no units from this inbound have already been sold, reserved, or dispatched
   if (serials.length > 0) {
     const { data: activeUnits, error: activeError } = await supabase
       .from('inventory_units')
@@ -532,7 +552,7 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
     }
 
     const dispatchedUnits = (activeUnits || []).filter(
-      (u) => !['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL'].includes(u.status)
+      (u: any) => !['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL'].includes(u.status)
     );
 
     if (dispatchedUnits.length > 0) {
@@ -542,7 +562,21 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
     }
   }
 
-  // 3. Delete inventory units (both pending placeholders and undispatched in-stock units)
+  // 4. Delete the transaction FIRST!
+  // NOTE: transaction_items references transactions(id) ON DELETE CASCADE,
+  // while transaction_items references inventory_units(serial_number) ON DELETE RESTRICT.
+  // Deleting the transaction first automatically cascades and deletes transaction_items,
+  // releasing the foreign key lock on inventory_units!
+  const { error: deleteTxnError } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('id', targetId);
+
+  if (deleteTxnError) {
+    return { error: `Failed to delete transaction record: ${deleteTxnError.message}` };
+  }
+
+  // 5. Delete inventory units (now unrestricted)
   if (serials.length > 0) {
     const { error: deleteUnitsError } = await supabase
       .from('inventory_units')
@@ -550,19 +584,9 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
       .in('serial_number', serials);
 
     if (deleteUnitsError) {
-      return { error: `Failed to delete inventory units: ${deleteUnitsError.message}` };
+      return { error: `Receipt deleted, but failed to clean up inventory units: ${deleteUnitsError.message}` };
     }
   }
 
-  // 4. Delete the transaction (cascades to delete transaction_items)
-  const { error: deleteTxnError } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('id', transactionId);
-
-  if (deleteTxnError) {
-    return { error: `Failed to delete transaction: ${deleteTxnError.message}` };
-  }
-
-  return { error: null };
+  return { error: null, deletedCount: serials.length };
 }

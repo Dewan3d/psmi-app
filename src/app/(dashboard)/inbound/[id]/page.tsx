@@ -22,9 +22,12 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  Trash2,
 } from 'lucide-react';
-import { getInboundTransaction, assignSerialNumber, bulkAssignSerials } from '@/actions/inbound';
+import { getInboundTransaction, assignSerialNumber, bulkAssignSerials, deleteInboundTransaction } from '@/actions/inbound';
 import { createClient } from '@/lib/supabase/client';
+import ConfirmModal from '../../components/confirm-modal';
+import FeedbackModal from '../../components/feedback-modal';
 
 type InboundDetail = {
   id: string;
@@ -255,6 +258,45 @@ export default function InboundDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [skuOptions, setSkuOptions] = useState<{ sku: string; model_name: string }[]>([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    isOpen: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: React.ReactNode;
+    redirectOnClose?: boolean;
+  }>({
+    isOpen: false,
+    type: 'info',
+    title: '',
+    message: '',
+  });
+
+  async function handleConfirmDelete() {
+    if (!detail) return;
+    setIsDeleting(true);
+    const res = await deleteInboundTransaction(detail.id);
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+
+    if (res.error) {
+      setFeedback({
+        isOpen: true,
+        type: 'error',
+        title: 'Delete Failed',
+        message: res.error,
+      });
+    } else {
+      setFeedback({
+        isOpen: true,
+        type: 'success',
+        title: 'Receipt Deleted Successfully',
+        message: 'This inbound receipt and its inventory units have been completely removed from inventory.',
+        redirectOnClose: true,
+      });
+    }
+  }
 
   async function fetchDetail() {
     setLoading(true);
@@ -353,6 +395,14 @@ export default function InboundDetailPage() {
                 All serials assigned
               </span>
             )}
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isDeleting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              Delete Receipt
+            </button>
           </div>
         </div>
         {detail.notes && (
@@ -424,6 +474,44 @@ export default function InboundDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        isDestructive={true}
+        title="Delete Inbound Receipt"
+        message={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to delete inbound receipt{' '}
+              <strong className="font-mono text-slate-800">{detail.tracking_number || detail.id}</strong>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              This will permanently remove all {detail.items.length} inventory units from the warehouse.
+              If any units have already been dispatched or sold, the deletion will be safely prevented.
+            </p>
+          </div>
+        }
+        confirmText="Yes, Delete Receipt"
+      />
+
+      {/* Feedback (Success / Error) Modal */}
+      <FeedbackModal
+        isOpen={feedback.isOpen}
+        onClose={() => {
+          setFeedback((prev) => ({ ...prev, isOpen: false }));
+          if (feedback.redirectOnClose) {
+            router.push('/inbound');
+          }
+        }}
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
+        buttonText={feedback.redirectOnClose ? 'Back to Inbound' : undefined}
+      />
     </div>
   );
 }

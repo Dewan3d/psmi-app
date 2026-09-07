@@ -8,6 +8,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { OutboundRoute, Transaction } from '@/lib/types/database';
 import { sendWeChatOutboundNotification } from '@/lib/wechat';
 
@@ -275,7 +276,12 @@ export async function getFifoSerialsForQuantity(data: {
 
 // ── Delete outbound dispatch (revert units status and remove transaction) ────
 export async function deleteOutboundTransaction(transactionId: string): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   // 1. Fetch transaction details
   const { data: txn, error: txnFetchError } = await supabase
@@ -302,7 +308,7 @@ export async function deleteOutboundTransaction(transactionId: string): Promise<
     return { error: itemsFetchError.message };
   }
 
-  const serials = (items || []).map((i) => i.serial_number);
+  const serials = (items as Array<{ serial_number: string }> || []).map((i) => i.serial_number);
 
   // 3. Determine the original status based on source location type
   const { data: loc } = await supabase
