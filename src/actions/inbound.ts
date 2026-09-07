@@ -520,32 +520,29 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
 
   const serials = (items || []).map((i) => i.serial_number);
 
-  // 2. Safety check: make sure all serial numbers are pending placeholders or undispatched accessories
-  const nonPendingSerials = serials.filter((sn) => !sn.startsWith('PENDING-'));
-  
-  if (nonPendingSerials.length > 0) {
-    const hasRealSerials = nonPendingSerials.some((sn) => !sn.startsWith('NS-'));
-    if (hasRealSerials) {
-      return { error: 'Cannot delete a finalized inbound transaction containing real serial numbers.' };
-    }
-
-    // It has NS- virtual serials. Check if any are no longer available in stock.
+  // 2. Safety check: make sure no units from this inbound have already been sold, reserved, or dispatched
+  if (serials.length > 0) {
     const { data: activeUnits, error: activeError } = await supabase
       .from('inventory_units')
-      .select('status')
-      .in('serial_number', nonPendingSerials);
+      .select('serial_number, status')
+      .in('serial_number', serials);
 
     if (activeError) {
       return { error: activeError.message };
     }
 
-    const unAvailable = (activeUnits || []).some((u) => !['IN_WAREHOUSE', 'IN_BRANCH'].includes(u.status));
-    if (unAvailable) {
-      return { error: 'Cannot delete inbound accessories because some units from this batch have already been dispatched or reserved.' };
+    const dispatchedUnits = (activeUnits || []).filter(
+      (u) => !['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL'].includes(u.status)
+    );
+
+    if (dispatchedUnits.length > 0) {
+      return {
+        error: `Cannot delete this inbound receipt because ${dispatchedUnits.length} unit(s) from this batch have already been dispatched, reserved, or sold.`,
+      };
     }
   }
 
-  // 3. Delete inventory units (both pending placeholders and un-dispatched virtual units)
+  // 3. Delete inventory units (both pending placeholders and undispatched in-stock units)
   if (serials.length > 0) {
     const { error: deleteUnitsError } = await supabase
       .from('inventory_units')

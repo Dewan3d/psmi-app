@@ -40,6 +40,7 @@ import { listProducts, listModelGroups } from '@/actions/products';
 import { createClient } from '@/lib/supabase/client';
 
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
+import ConfirmModal from '../components/confirm-modal';
 
 type InboundSummary = {
   id: string;
@@ -279,22 +280,36 @@ function NewInboundModal({
     }
   };
 
-  function handleSubmit(e: React.FormEvent) {
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  function handleFormPreSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
     if (mode === 'model-group') {
       if (!selectedModelGroup) { setError('Please select a model group'); return; }
+      const qty = parseInt(quantity, 10);
+      if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
     } else {
       if (!sku) { setError('Please select a SKU'); return; }
+      if (mode === 'quantity') {
+        const qty = parseInt(quantity, 10);
+        if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
+      } else {
+        const serials = serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        if (serials.length === 0) { setError('Please enter at least one serial number'); return; }
+      }
     }
     if (!locationId) { setError('Please select a destination location'); return; }
 
+    setShowConfirm(true);
+  }
+
+  function handleConfirmedSubmit() {
     startTransition(async () => {
       const pPrice = purchasePrice ? parseFloat(purchasePrice) : undefined;
       if (mode === 'model-group') {
         const qty = parseInt(quantity, 10);
-        if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
         const result = await createInboundByModelGroup({
           model_group: selectedModelGroup,
           location_id: locationId,
@@ -303,10 +318,9 @@ function NewInboundModal({
           notes: notes || undefined,
           purchase_price: pPrice,
         });
-        if (result.error) { setError(result.error); return; }
+        if (result.error) { setError(result.error); setShowConfirm(false); return; }
       } else if (mode === 'quantity') {
         const qty = parseInt(quantity, 10);
-        if (isNaN(qty) || qty <= 0) { setError('Please enter a valid quantity'); return; }
         const result = await createInboundByQuantity({
           sku,
           location_id: locationId,
@@ -315,10 +329,9 @@ function NewInboundModal({
           notes: notes || undefined,
           purchase_price: pPrice,
         });
-        if (result.error) { setError(result.error); return; }
+        if (result.error) { setError(result.error); setShowConfirm(false); return; }
       } else {
         const serials = serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-        if (serials.length === 0) { setError('Please enter at least one serial number'); return; }
         const result = await createInboundTransaction({
           sku,
           location_id: locationId,
@@ -327,12 +340,13 @@ function NewInboundModal({
           notes: notes || undefined,
           purchase_price: pPrice,
         });
-        if (result.error) { setError(result.error); return; }
+        if (result.error) { setError(result.error); setShowConfirm(false); return; }
       }
       // Make sure camera is stopped if active
       if (cameraActive) {
         await stopCamera();
       }
+      setShowConfirm(false);
       onSuccess();
     });
   }
@@ -412,8 +426,7 @@ function NewInboundModal({
           </div>
         ) : null}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+        <form onSubmit={handleFormPreSubmit} className="px-6 py-4 space-y-4">
           {/* Product Selector — SKU or Model Group depending on mode */}
           {mode === 'model-group' ? (
             <>
@@ -713,6 +726,45 @@ function NewInboundModal({
           </div>
         </form>
       </div>
+
+      <ConfirmModal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        onConfirm={handleConfirmedSubmit}
+        isLoading={isPending}
+        title="Confirm Inbound Receipt"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to add this inbound shipment to the system?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p>
+                <strong className="text-slate-900">Destination:</strong>{' '}
+                {locations.find((l) => l.id === locationId)?.name || 'Selected Location'}
+              </p>
+              {mode === 'model-group' ? (
+                <p>
+                  <strong className="text-slate-900">Quantity:</strong> {quantity} units ({selectedModelGroup})
+                </p>
+              ) : mode === 'quantity' ? (
+                <p>
+                  <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} ({quantity} units)
+                </p>
+              ) : (
+                <p>
+                  <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} (
+                  {serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length} serial numbers)
+                </p>
+              )}
+              {purchasePrice && (
+                <p>
+                  <strong className="text-slate-900">Unit Cost:</strong> ₦{Number(purchasePrice).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+        }
+        confirmText="Yes, Inbound Items"
+      />
     </div>
   );
 }
@@ -743,14 +795,17 @@ export default function InboundPage() {
     setLoading(false);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this inbound receipt? This will remove all associated pending inventory slots.')) return;
+  const [txnToDelete, setTxnToDelete] = useState<InboundSummary | null>(null);
+
+  async function handleConfirmDelete() {
+    if (!txnToDelete) return;
     setIsDeleteLoading(true);
-    const res = await deleteInboundTransaction(id);
+    const res = await deleteInboundTransaction(txnToDelete.id);
     setIsDeleteLoading(false);
     if (res.error) {
       alert(res.error);
     } else {
+      setTxnToDelete(null);
       await fetchTransactions();
     }
   }
@@ -769,6 +824,30 @@ export default function InboundPage() {
           }}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!txnToDelete}
+        onClose={() => setTxnToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleteLoading}
+        isDestructive={true}
+        title="Delete Inbound Receipt"
+        message={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to delete inbound receipt{' '}
+              <strong className="font-mono text-slate-800">{txnToDelete?.id}</strong>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              This will remove all associated in-stock units for{' '}
+              <strong>{txnToDelete?.model_name || txnToDelete?.sku}</strong> ({txnToDelete?.total_items} units).
+              If any units have already been dispatched or sold, the deletion will be safely prevented.
+            </p>
+          </div>
+        }
+        confirmText="Yes, Delete Receipt"
+      />
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -940,16 +1019,14 @@ export default function InboundPage() {
                         >
                           View <ChevronRight className="w-3.5 h-3.5" />
                         </Link>
-                        {txn.pending_items > 0 && (
-                          <button
-                            onClick={() => handleDelete(txn.id)}
-                            disabled={isDeleteLoading}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors"
-                            title="Delete pending receipt"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => setTxnToDelete(txn)}
+                          disabled={isDeleteLoading}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors cursor-pointer"
+                          title="Delete inbound receipt"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -41,6 +41,7 @@ import { getFifoQueue } from '@/actions/inventory';
 import { formatNaira } from '@/lib/utils/currency';
 
 import ComboboxSelect from '../components/combobox-select';
+import ConfirmModal from '../components/confirm-modal';
 
 type OutboundSummary = {
   id: string;
@@ -302,7 +303,9 @@ function NewOutboundModal({
     });
   }
 
-  function handleSubmit() {
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  function handlePreSubmit() {
     setError(null);
     if (!route) { setError('Select a route'); return; }
     if (!fromLocationId) { setError('Select source location'); return; }
@@ -313,10 +316,15 @@ function NewOutboundModal({
     }
     if (selectedSerials.length === 0) { setError('Add at least one serial number'); return; }
 
+    setShowConfirm(true);
+  }
+
+  function handleConfirmedSubmit() {
     startTransition(async () => {
       const reserveResult = await reserveUnits({ serial_numbers: selectedSerials, user_id: userId });
       if (reserveResult.errors.length > 0) {
         setError(`Could not reserve: ${reserveResult.errors.map((e) => `${e.serial_number}: ${e.error}`).join(', ')}`);
+        setShowConfirm(false);
         return;
       }
 
@@ -337,7 +345,8 @@ function NewOutboundModal({
         customer_name: (route === 'B2B' || route === 'B2C') ? customerName.trim() : undefined,
         item_prices: (route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined,
       });
-      if (result.error) { setError(result.error); return; }
+      if (result.error) { setError(result.error); setShowConfirm(false); return; }
+      setShowConfirm(false);
       onSuccess();
     });
   }
@@ -836,8 +845,8 @@ function NewOutboundModal({
 
               <div className="flex gap-3">
                 <button onClick={() => setStep(2)} className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">← Back</button>
-                <button onClick={handleSubmit} disabled={isPending}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60">
+                <button onClick={handlePreSubmit} disabled={isPending}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 cursor-pointer">
                   {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
                   {isPending ? 'Creating…' : 'Create Outbound'}
                 </button>
@@ -854,6 +863,54 @@ function NewOutboundModal({
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        onConfirm={handleConfirmedSubmit}
+        isLoading={isPending}
+        title="Confirm Outbound Dispatch"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to create this outbound dispatch order?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p>
+                <strong className="text-slate-900">Route:</strong> {routeConfig[route]?.label || route}
+              </p>
+              <p>
+                <strong className="text-slate-900">Source:</strong>{' '}
+                {locations.find((l) => l.id === fromLocationId)?.name || 'Source'}
+              </p>
+              {toLocationId && (
+                <p>
+                  <strong className="text-slate-900">Destination:</strong>{' '}
+                  {locations.find((l) => l.id === toLocationId)?.name}
+                </p>
+              )}
+              {customerName && (
+                <p>
+                  <strong className="text-slate-900">Customer:</strong> {customerName}
+                </p>
+              )}
+              <p>
+                <strong className="text-slate-900">Units:</strong> {selectedSerials.length} unit(s)
+              </p>
+              {(route === 'B2B' || route === 'B2C') && (
+                <p>
+                  <strong className="text-slate-900">Total Value:</strong>{' '}
+                  {formatNaira(
+                    selectedSerials.reduce((sum, sn) => {
+                      const val = parseFloat(itemPrices[sn] || '0');
+                      return sum + (isNaN(val) ? 0 : val);
+                    }, 0)
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+        }
+        confirmText="Yes, Create Outbound"
+      />
     </div>
   );
 }
@@ -929,14 +986,17 @@ export default function OutboundPage() {
     setLoading(false);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete/cancel this outbound dispatch? The reserved/transit inventory units will be returned to active stock.')) return;
+  const [txnToDelete, setTxnToDelete] = useState<OutboundSummary | null>(null);
+
+  async function handleConfirmDelete() {
+    if (!txnToDelete) return;
     setIsDeleteLoading(true);
-    const res = await deleteOutboundTransaction(id);
+    const res = await deleteOutboundTransaction(txnToDelete.id);
     setIsDeleteLoading(false);
     if (res.error) {
       alert(res.error);
     } else {
+      setTxnToDelete(null);
       await fetchTransactions();
     }
   }
@@ -959,6 +1019,29 @@ export default function OutboundPage() {
           onVerified={() => { setVerifyTarget(null); fetchTransactions(); }}
         />
       )}
+
+      {/* Cancel Outbound Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!txnToDelete}
+        onClose={() => setTxnToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleteLoading}
+        isDestructive={true}
+        title="Cancel Outbound Dispatch"
+        message={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to cancel and delete outbound dispatch{' '}
+              <strong className="font-mono text-slate-800">{txnToDelete?.tracking_number || txnToDelete?.id}</strong>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              All {txnToDelete?.item_count} reserved or in-transit inventory units will be returned to active stock at{' '}
+              <strong>{txnToDelete?.from_name}</strong>.
+            </p>
+          </div>
+        }
+        confirmText="Yes, Cancel Dispatch"
+      />
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
@@ -1081,10 +1164,10 @@ export default function OutboundPage() {
                           )}
                           {!txn.verified && (
                             <button
-                              onClick={() => handleDelete(txn.id)}
+                              onClick={() => setTxnToDelete(txn)}
                               disabled={isDeleteLoading}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors"
-                              title="Delete/Cancel outbound"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors cursor-pointer"
+                              title="Cancel/Delete outbound dispatch"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>

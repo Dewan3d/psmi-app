@@ -115,7 +115,7 @@ export default function GlobalSearchBar() {
   let itemCounter = -1;
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-sm lg:max-w-md">
+    <div ref={containerRef} className="relative w-full sm:w-80 md:w-96 lg:w-[28rem]">
       {/* Search Input Box */}
       <div className="relative flex items-center">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -135,8 +135,8 @@ export default function GlobalSearchBar() {
             }
           }}
           onKeyDown={handleInputKeyDown}
-          placeholder="Search inventory, serials, orders..."
-          className="w-full pl-9.5 pr-16 py-2 text-sm bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-xl placeholder:text-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 transition-all shadow-sm"
+          placeholder="Search inventory, orders..."
+          className="w-full pl-10 pr-20 py-2 text-sm bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-xl placeholder:text-slate-400 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 transition-all shadow-sm"
         />
 
         <div className="absolute right-2.5 flex items-center gap-1">

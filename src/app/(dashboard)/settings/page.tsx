@@ -41,6 +41,7 @@ import { UserRole, ProductCategory } from '@/lib/types/database';
 import { formatNaira } from '@/lib/utils/currency';
 
 import ComboboxSelect from '../components/combobox-select';
+import ConfirmModal from '../components/confirm-modal';
 
 type Product = {
   sku: string;
@@ -136,13 +137,22 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     currentPage * ITEMS_PER_PAGE
   );
 
-  function handleCreate(e: React.FormEvent) {
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
+
+  function handleCreatePreSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!sku.trim()) { setError('SKU code is required'); return; }
+    if (!modelName.trim()) { setError('Model name is required'); return; }
+    setShowCreateConfirm(true);
+  }
+
+  function handleConfirmedCreate() {
     startTransition(async () => {
       const result = await createProduct({
-        sku,
-        model_name: modelName,
+        sku: sku.trim(),
+        model_name: modelName.trim(),
         description: description || undefined,
         low_stock_threshold: parseInt(threshold, 10) || 10,
         is_serialized: isSerialized,
@@ -153,6 +163,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       });
       if (result.error) {
         setError(result.error);
+        setShowCreateConfirm(false);
         return;
       }
       setSku('');
@@ -165,7 +176,25 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       setCostPrice('');
       setRetailPrice('');
       setShowForm(false);
+      setShowCreateConfirm(false);
       await loadProducts();
+    });
+  }
+
+  function handleConfirmedImport() {
+    const matched = importPreview?.rows.filter((r: any) => r.matched) || [];
+    if (matched.length === 0) return;
+    startImporting(async () => {
+      const result = await bulkUpdatePrices(
+        matched.map((r: any) => ({
+          sku: r.sku,
+          cost_price: r.cost_price,
+          retail_price: r.retail_price,
+        }))
+      );
+      setImportResult(result);
+      setShowImportConfirm(false);
+      if (result.updated > 0) await loadProducts();
     });
   }
 
@@ -360,23 +389,9 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     <span className="text-[10px] text-slate-400">Showing first 50 of {importPreview.rows.length} rows</span>
                   )}
                   <button
-                    onClick={() => {
-                      const matched = importPreview.rows.filter((r: any) => r.matched);
-                      if (matched.length === 0) return;
-                      startImporting(async () => {
-                        const result = await bulkUpdatePrices(
-                          matched.map((r: any) => ({
-                            sku: r.sku,
-                            cost_price: r.cost_price,
-                            retail_price: r.retail_price,
-                          }))
-                        );
-                        setImportResult(result);
-                        if (result.updated > 0) await loadProducts();
-                      });
-                    }}
+                    onClick={() => setShowImportConfirm(true)}
                     disabled={importing || importPreview.rows.filter((r: any) => r.matched).length === 0}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors ml-auto"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors ml-auto cursor-pointer"
                   >
                     {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     Apply {importPreview.rows.filter((r: any) => r.matched).length} Price Update(s)
@@ -420,7 +435,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       {/* New SKU form */}
       {showForm && (
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 animate-fade-in">
-          <form onSubmit={handleCreate} className="space-y-3">
+          <form onSubmit={handleCreatePreSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -880,6 +895,52 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
       {error && !showForm && (
         <div className="px-5 pb-4 text-xs text-red-600">{error}</div>
       )}
+
+      {/* New SKU Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showCreateConfirm}
+        onClose={() => setShowCreateConfirm(false)}
+        onConfirm={handleConfirmedCreate}
+        isLoading={isPending}
+        title="Confirm New SKU Creation"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to add this new SKU to the catalogue?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p><strong className="text-slate-900">SKU Code:</strong> <span className="font-mono uppercase">{sku}</span></p>
+              <p><strong className="text-slate-900">Model Name:</strong> {modelName}</p>
+              <p><strong className="text-slate-900">Category:</strong> {categoryBadge}</p>
+              {costPrice && <p><strong className="text-slate-900">Cost Price:</strong> ₦{Number(costPrice).toLocaleString()}</p>}
+              {retailPrice && <p><strong className="text-slate-900">Retail Price:</strong> ₦{Number(retailPrice).toLocaleString()}</p>}
+            </div>
+          </div>
+        }
+        confirmText="Yes, Create SKU"
+      />
+
+      {/* Bulk Price Import Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showImportConfirm}
+        onClose={() => setShowImportConfirm(false)}
+        onConfirm={handleConfirmedImport}
+        isLoading={importing}
+        title="Confirm Bulk Price Update"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to bulk-update prices for matching SKUs?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p>
+                <strong className="text-slate-900">File:</strong> {importFile?.name}
+              </p>
+              <p>
+                <strong className="text-slate-900">Matched SKUs:</strong>{' '}
+                {importPreview?.rows?.filter((r: any) => r.matched)?.length || 0} product(s) will be updated
+              </p>
+            </div>
+          </div>
+        }
+        confirmText="Yes, Apply Price Updates"
+      />
     </div>
   );
 }
@@ -917,23 +978,32 @@ function LocationSection({ isAdmin }: { isAdmin: boolean }) {
     currentPage * ITEMS_PER_PAGE
   );
 
-  function handleCreate(e: React.FormEvent) {
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
+
+  function handleCreatePreSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!name.trim()) { setError('Location name is required'); return; }
+    setShowCreateConfirm(true);
+  }
+
+  function handleConfirmedCreate() {
     startTransition(async () => {
       const result = await createLocation({
-        name,
+        name: name.trim(),
         type,
         address: address || undefined,
       });
       if (result.error) {
         setError(result.error);
+        setShowCreateConfirm(false);
         return;
       }
       setName('');
       setType('BRANCH');
       setAddress('');
       setShowForm(false);
+      setShowCreateConfirm(false);
       await loadLocations();
     });
   }
@@ -992,7 +1062,7 @@ function LocationSection({ isAdmin }: { isAdmin: boolean }) {
       {/* New Location Form */}
       {showForm && (
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 animate-fade-in">
-          <form onSubmit={handleCreate} className="space-y-3">
+          <form onSubmit={handleCreatePreSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -1211,6 +1281,26 @@ function LocationSection({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
       )}
+
+      {/* New Location Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showCreateConfirm}
+        onClose={() => setShowCreateConfirm(false)}
+        onConfirm={handleConfirmedCreate}
+        isLoading={isPending}
+        title="Confirm New Location"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to add this new location to the system?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p><strong className="text-slate-900">Name:</strong> {name}</p>
+              <p><strong className="text-slate-900">Type:</strong> {type === 'WAREHOUSE' ? 'Warehouse' : 'Branch'}</p>
+              {address && <p><strong className="text-slate-900">Address:</strong> {address}</p>}
+            </div>
+          </div>
+        }
+        confirmText="Yes, Add Location"
+      />
     </div>
   );
 }
@@ -1249,19 +1339,28 @@ function UserSection({
     currentPage * ITEMS_PER_PAGE
   );
 
-  function handleInvite(e: React.FormEvent) {
+  const [showInviteConfirm, setShowInviteConfirm] = useState(false);
+
+  function handleInvitePreSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    if (!inviteName.trim()) { setError('Full name is required'); return; }
+    if (!inviteEmail.trim()) { setError('Email address is required'); return; }
+    setShowInviteConfirm(true);
+  }
+
+  function handleConfirmedInvite() {
     startTransition(async () => {
       const result = await inviteUser({
-        email: inviteEmail,
-        full_name: inviteName,
+        email: inviteEmail.trim(),
+        full_name: inviteName.trim(),
         role: inviteRole,
         location_id: inviteLocation || undefined,
       });
       if (result.error) {
         setError(result.error);
+        setShowInviteConfirm(false);
         return;
       }
       setSuccess(`Invite sent to ${inviteEmail}`);
@@ -1270,6 +1369,7 @@ function UserSection({
       setInviteRole('BRANCH_STAFF');
       setInviteLocation('');
       setShowInvite(false);
+      setShowInviteConfirm(false);
       await loadUsers();
     });
   }
@@ -1302,7 +1402,7 @@ function UserSection({
 
       {showInvite && (
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 animate-fade-in">
-          <form onSubmit={handleInvite} className="space-y-3">
+          <form onSubmit={handleInvitePreSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -1482,6 +1582,32 @@ function UserSection({
           </div>
         </div>
       )}
+
+      {/* Invite User Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showInviteConfirm}
+        onClose={() => setShowInviteConfirm(false)}
+        onConfirm={handleConfirmedInvite}
+        isLoading={isPending}
+        title="Confirm User Invitation"
+        message={
+          <div className="space-y-2">
+            <p>Are you sure you want to invite this user?</p>
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
+              <p><strong className="text-slate-900">Name:</strong> {inviteName}</p>
+              <p><strong className="text-slate-900">Email:</strong> {inviteEmail}</p>
+              <p><strong className="text-slate-900">Assigned Role:</strong> {inviteRole}</p>
+              {inviteLocation && (
+                <p>
+                  <strong className="text-slate-900">Assigned Branch:</strong>{' '}
+                  {locations.find((l) => l.id === inviteLocation)?.name || inviteLocation}
+                </p>
+              )}
+            </div>
+          </div>
+        }
+        confirmText="Yes, Send Invitation"
+      />
     </div>
   );
 }
@@ -1513,19 +1639,17 @@ function AccessoryDeletionSection() {
     load();
   }, []);
 
-  async function handleDelete(id: string) {
-    if (
-      !confirm(
-        'Are you sure you want to delete this accessory inbound receipt? This will remove all associated stock.'
-      )
-    )
-      return;
+  const [txnToDelete, setTxnToDelete] = useState<any | null>(null);
+
+  async function handleConfirmDelete() {
+    if (!txnToDelete) return;
     setIsDeleting(true);
-    const res = await deleteInboundTransaction(id);
+    const res = await deleteInboundTransaction(txnToDelete.id);
     setIsDeleting(false);
     if (res.error) {
       alert(res.error);
     } else {
+      setTxnToDelete(null);
       await load();
     }
   }
@@ -1571,7 +1695,7 @@ function AccessoryDeletionSection() {
                 </p>
               </div>
               <button
-                onClick={() => handleDelete(txn.id)}
+                onClick={() => setTxnToDelete(txn)}
                 disabled={isDeleting}
                 className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-xl transition-colors cursor-pointer"
                 title="Delete accessory receipt"
@@ -1582,6 +1706,27 @@ function AccessoryDeletionSection() {
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        isOpen={!!txnToDelete}
+        onClose={() => setTxnToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        isDestructive={true}
+        title="Delete Accessory Receipt"
+        message={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to delete accessory receipt{' '}
+              <strong className="font-mono text-slate-800">{txnToDelete?.tracking_number || txnToDelete?.id}</strong>?
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              This will remove all {txnToDelete?.total_items} units of {txnToDelete?.model_name} from active inventory.
+            </p>
+          </div>
+        }
+        confirmText="Yes, Delete Receipt"
+      />
     </div>
   );
 }
