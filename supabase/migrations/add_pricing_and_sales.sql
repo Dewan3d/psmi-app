@@ -11,9 +11,12 @@ ALTER TABLE products
   ADD COLUMN IF NOT EXISTS cost_price   NUMERIC(12,2),
   ADD COLUMN IF NOT EXISTS retail_price NUMERIC(12,2);
 
--- 2. Transaction Items: per-unit pricing
+-- 2. Transaction Items & Inventory Units: per-unit pricing
 ALTER TABLE transaction_items
   ADD COLUMN IF NOT EXISTS sale_price     NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2);
+
+ALTER TABLE inventory_units
   ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2);
 
 -- 3. Transactions: customer name for B2B/B2C outbounds
