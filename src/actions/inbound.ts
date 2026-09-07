@@ -522,6 +522,9 @@ export async function getInboundTransaction(transactionId: string): Promise<{
     created_at: string;
     location_name: string;
     user_name: string;
+    total_items: number;
+    pending_items: number;
+    is_non_serialized: boolean;
     items: {
       serial_number: string;
       is_pending: boolean;
@@ -542,6 +545,7 @@ export async function getInboundTransaction(transactionId: string): Promise<{
       created_at,
       locations!to_location_id(name),
       profiles(full_name),
+      total:transaction_items(count),
       transaction_items(
         serial_number,
         inventory_units(status, sku)
@@ -562,6 +566,23 @@ export async function getInboundTransaction(transactionId: string): Promise<{
     sku: item.inventory_units?.sku || '',
   }));
 
+  const totalItems = data.total?.[0]?.count ?? items.length;
+  const isNonSerialized = (data.notes || '').includes('NON-SERIALIZED');
+
+  let pendingItems = 0;
+  if (!isNonSerialized) {
+    if (items.length < totalItems) {
+      const { count } = await supabase
+        .from('transaction_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('transaction_id', data.id)
+        .like('serial_number', 'PENDING-%');
+      pendingItems = count || 0;
+    } else {
+      pendingItems = items.filter((i: any) => i.is_pending).length;
+    }
+  }
+
   return {
     data: {
       id: data.id,
@@ -570,6 +591,9 @@ export async function getInboundTransaction(transactionId: string): Promise<{
       created_at: data.created_at,
       location_name: data.locations?.name || 'Unknown',
       user_name: data.profiles?.full_name || 'Unknown',
+      total_items: totalItems,
+      pending_items: pendingItems,
+      is_non_serialized: isNonSerialized,
       items,
     },
     error: null,
@@ -603,6 +627,7 @@ export async function listInboundTransactions(): Promise<{
       created_at,
       locations!to_location_id(name),
       profiles(full_name),
+      total:transaction_items(count),
       transaction_items(
         serial_number,
         inventory_units(
@@ -618,13 +643,29 @@ export async function listInboundTransactions(): Promise<{
     return { data: [], error: error.message };
   }
 
-  const transactions = (data || []).map((t: any) => {
+  const transactions = await Promise.all((data || []).map(async (t: any) => {
     const items = t.transaction_items || [];
     const firstItem = items[0];
     const sku = firstItem?.inventory_units?.sku || '';
     const modelName = firstItem?.inventory_units?.products?.model_name || '';
-    const serials: string[] = items.map((i: any) => i.serial_number);
-    const pendingItems = serials.filter((sn) => sn.startsWith('PENDING-')).length;
+    const totalItems = t.total?.[0]?.count ?? items.length;
+
+    let pendingItems = 0;
+    const isNonSerialized = (t.notes || '').includes('NON-SERIALIZED');
+    if (!isNonSerialized) {
+      if (items.length < totalItems) {
+        // Items were truncated by PostgREST 1000 limit, get exact pending count from DB
+        const { count } = await supabase
+          .from('transaction_items')
+          .select('*', { count: 'exact', head: true })
+          .eq('transaction_id', t.id)
+          .like('serial_number', 'PENDING-%');
+        pendingItems = count || 0;
+      } else {
+        pendingItems = items.filter((i: any) => (i.serial_number || '').startsWith('PENDING-')).length;
+      }
+    }
+
     return {
       id: t.id,
       tracking_number: t.tracking_number,
@@ -632,12 +673,12 @@ export async function listInboundTransactions(): Promise<{
       created_at: t.created_at,
       location_name: t.locations?.name || 'Unknown',
       user_name: t.profiles?.full_name || 'Unknown',
-      total_items: serials.length,
+      total_items: totalItems,
       pending_items: pendingItems,
       sku,
       model_name: modelName,
     };
-  });
+  }));
 
   return { data: transactions, error: null };
 }

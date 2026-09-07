@@ -36,6 +36,9 @@ type InboundDetail = {
   created_at: string;
   location_name: string;
   user_name: string;
+  total_items?: number;
+  pending_items?: number;
+  is_non_serialized?: boolean;
   items: {
     serial_number: string;
     is_pending: boolean;
@@ -360,6 +363,9 @@ export default function InboundDetailPage() {
     );
   }
 
+  const totalCount = detail.total_items ?? detail.items.length;
+  const isNonSerialized = detail.is_non_serialized ?? (detail.notes || '').includes('NON-SERIALIZED');
+  const pendingCount = detail.pending_items ?? (isNonSerialized ? 0 : detail.items.filter((i) => i.is_pending).length);
   const pendingItems = detail.items.filter((i) => i.is_pending);
   const assignedItems = detail.items.filter((i) => !i.is_pending);
 
@@ -384,15 +390,20 @@ export default function InboundDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {pendingItems.length > 0 ? (
+            {isNonSerialized ? (
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
+                <CheckCircle2 className="w-4 h-4" />
+                {totalCount.toLocaleString()} non-serialized units in stock
+              </span>
+            ) : pendingCount > 0 ? (
               <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
                 <AlertTriangle className="w-4 h-4" />
-                {pendingItems.length} of {detail.items.length} awaiting serial
+                {pendingCount.toLocaleString()} of {totalCount.toLocaleString()} awaiting serial
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
                 <CheckCircle2 className="w-4 h-4" />
-                All serials assigned
+                All {totalCount.toLocaleString()} serials assigned
               </span>
             )}
             <button
@@ -458,12 +469,14 @@ export default function InboundDetailPage() {
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">Assigned Serial Numbers</h2>
-              <p className="text-xs text-slate-400">{assignedItems.length} unit(s) registered as IN WAREHOUSE</p>
+              <h2 className="text-sm font-semibold text-slate-800">
+                {isNonSerialized ? 'Warehouse Inventory' : 'Assigned Serial Numbers'}
+              </h2>
+              <p className="text-xs text-slate-400">{totalCount.toLocaleString()} unit(s) registered as IN WAREHOUSE</p>
             </div>
           </div>
           <div className="divide-y divide-slate-50">
-            {assignedItems.map((item) => (
+            {assignedItems.slice(0, 100).map((item) => (
               <div key={item.serial_number} className="flex items-center justify-between px-5 py-3">
                 <span className="text-sm font-mono text-slate-800">{item.serial_number}</span>
                 <span className="text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full px-2.5 py-0.5 border border-emerald-200/60">
@@ -471,6 +484,11 @@ export default function InboundDetailPage() {
                 </span>
               </div>
             ))}
+            {totalCount > 100 && (
+              <div className="py-2.5 text-center text-xs text-slate-400 bg-slate-50/50">
+                Showing first 100 of {totalCount.toLocaleString()} units
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -490,7 +508,7 @@ export default function InboundDetailPage() {
               <strong className="font-mono text-slate-800">{detail.tracking_number || detail.id}</strong>?
             </p>
             <p className="text-xs text-slate-500 leading-relaxed">
-              This will permanently remove all {detail.items.length} inventory units from the warehouse.
+              This will permanently remove all {totalCount.toLocaleString()} inventory units from the warehouse.
               If any units have already been dispatched or sold, the deletion will be safely prevented.
             </p>
           </div>
