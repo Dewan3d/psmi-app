@@ -7,7 +7,7 @@
 
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { getInboundTransaction, assignSerialNumber, bulkAssignSerials, deleteInboundTransaction } from '@/actions/inbound';
 import { createClient } from '@/lib/supabase/client';
@@ -145,59 +146,212 @@ function BulkAssignPanel({
   transactionId,
   pendingCount,
   onComplete,
+  onNotify,
   skuOptions,
   defaultSku,
 }: {
   transactionId: string;
   pendingCount: number;
   onComplete: () => void;
+  onNotify: (info: { type: 'success' | 'error' | 'info'; title: string; message: React.ReactNode }) => void;
   skuOptions: { sku: string; model_name: string }[];
   defaultSku: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [text, setText] = useState('');
   const [selectedSku, setSelectedSku] = useState(defaultSku);
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ assigned: number; errors: { serial: string; error: string }[] } | null>(null);
+  const [result, setResult] = useState<{ assigned: number; pending_remaining?: number; errors: { serial: string; error: string }[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const showSkuPicker = skuOptions.length > 1;
 
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (!content) return;
+
+      const lines = content
+        .split(/[\r\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (lines.length === 0) {
+        onNotify({
+          type: 'error',
+          title: 'Empty File',
+          message: 'The uploaded file does not contain any serial numbers.',
+        });
+        return;
+      }
+
+      setText((prev) => {
+        const existing = prev.trim();
+        return existing ? `${existing}\n${lines.join('\n')}` : lines.join('\n');
+      });
+
+      onNotify({
+        type: 'info',
+        title: 'File Loaded',
+        message: `Loaded ${lines.length.toLocaleString()} serial number(s) from "${file.name}". Click "Assign All" to assign them.`,
+      });
+    };
+    reader.readAsText(file);
+    // Reset file input value so the same file can be selected again if needed
+    e.target.value = '';
+  }
+
   function handleBulkAssign() {
-    const serials = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    const serials = text.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
     if (serials.length === 0) return;
+
     startTransition(async () => {
       const res = await bulkAssignSerials({
         transaction_id: transactionId,
         real_serials: serials,
         sku_override: selectedSku !== defaultSku ? selectedSku : undefined,
       });
+
       setResult(res);
-      if (res.assigned > 0) onComplete();
+
+      if (res.assigned > 0) {
+        // Automatically deduct/refresh page state
+        onComplete();
+
+        if (res.errors.length === 0) {
+          // All succeeded: clear textarea
+          setText('');
+          const remaining = res.pending_remaining ?? Math.max(0, pendingCount - res.assigned);
+          onNotify({
+            type: 'success',
+            title: 'Bulk Assignment Complete',
+            message: (
+              <div className="space-y-2">
+                <p className="font-semibold text-emerald-800">
+                  Successfully assigned {res.assigned.toLocaleString()} serial number(s)!
+                </p>
+                <p className="text-sm text-slate-600">
+                  {remaining > 0 ? (
+                    <span>
+                      <strong>{remaining.toLocaleString()}</strong> unit(s) remaining waiting to be assigned.
+                    </span>
+                  ) : (
+                    <span className="text-emerald-700 font-medium">
+                      All units in this receipt are now fully assigned!
+                    </span>
+                  )}
+                </p>
+              </div>
+            ),
+          });
+        } else {
+          // Partial success: keep ONLY failed serials in the textarea for easy review
+          const failedSet = new Set(res.errors.map((e) => e.serial));
+          const remainingSerials = serials.filter((s) => failedSet.has(s));
+          setText(remainingSerials.join('\n'));
+
+          const remaining = res.pending_remaining ?? Math.max(0, pendingCount - res.assigned);
+          onNotify({
+            type: 'info',
+            title: 'Partial Assignment Complete',
+            message: (
+              <div className="space-y-2">
+                <p className="font-medium text-slate-800">
+                  {res.assigned.toLocaleString()} serial(s) assigned successfully, but{' '}
+                  <span className="text-rose-600 font-semibold">{res.errors.length} serial(s)</span> could not be assigned.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Remaining awaiting serials: <strong>{remaining.toLocaleString()}</strong>.
+                  The failed serials have been kept in the input box so you can review or correct them.
+                </p>
+                <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs font-mono space-y-1">
+                  {res.errors.map((err, idx) => (
+                    <div key={idx} className="text-rose-700">
+                      • {err.serial}: {err.error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ),
+          });
+        }
+      } else {
+        // Zero assigned
+        onNotify({
+          type: 'error',
+          title: 'Bulk Assignment Failed',
+          message: (
+            <div className="space-y-2">
+              <p className="font-medium text-rose-800">
+                No serial numbers were assigned.
+              </p>
+              <div className="max-h-36 overflow-y-auto rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs font-mono space-y-1">
+                {res.errors.map((err, idx) => (
+                  <div key={idx} className="text-rose-700">
+                    • {err.serial}: {err.error}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ),
+        });
+      }
     });
   }
 
+  const enteredCount = text.split(/[\r\n,]+/).filter((s) => s.trim()).length;
+
   return (
-    <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50/50 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-50 rounded-xl">
-            <Upload className="w-4 h-4 text-indigo-600" />
+          <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+            <Upload className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-800">Bulk Serial Assignment</p>
-            <p className="text-xs text-slate-500">Paste or upload multiple serials at once for {pendingCount} pending slot(s)</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-slate-800">Bulk Serial Assignment</p>
+              <span className="text-xs px-2 py-0.5 font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/50">
+                Fast Upload
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Paste or upload a CSV/TXT list to assign serials for {pendingCount.toLocaleString()} pending slot(s)
+            </p>
           </div>
         </div>
         {open ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
       </button>
 
       {open && (
-        <div className="px-5 pb-5 space-y-3 border-t border-slate-100">
-          <p className="text-xs text-slate-500 pt-3">
-            Enter one serial number per line (or comma-separated). They will be assigned to pending slots in order.
-          </p>
+        <div className="px-5 pb-5 space-y-4 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>Enter one serial number per line (or comma-separated).</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".csv,.txt"
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600" />
+                Upload CSV / TXT File
+              </button>
+            </div>
+          </div>
+
           {showSkuPicker && (
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Assign all to SKU</label>
@@ -214,34 +368,68 @@ function BulkAssignPanel({
               </select>
             </div>
           )}
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={6}
-            placeholder={`e.g.\nSN001234567890\nSN001234567891\nSN001234567892`}
-            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono resize-none"
-          />
+
+          <div className="relative">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={6}
+              disabled={isPending}
+              placeholder={`Paste serials here, e.g.\nSN001234567890\nSN001234567891\nSN001234567892`}
+              className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono resize-none disabled:bg-slate-50 disabled:opacity-60"
+            />
+            {isPending && (
+              <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] rounded-xl flex items-center justify-center gap-2 text-indigo-700 text-sm font-medium">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Processing and assigning serial numbers…
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">
-              {text.split(/[\n,]+/).filter((s) => s.trim()).length} serial(s) entered
+            <span className="text-xs text-slate-500">
+              <strong className="text-slate-800 font-mono">{enteredCount.toLocaleString()}</strong> serial(s) detected
+              {enteredCount > pendingCount && (
+                <span className="text-rose-600 font-medium ml-2">
+                  (Warning: Exceeds {pendingCount.toLocaleString()} pending slot{pendingCount === 1 ? '' : 's'})
+                </span>
+              )}
             </span>
-            <button
-              onClick={handleBulkAssign}
-              disabled={isPending || !text.trim()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-            >
-              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Assign All
-            </button>
+            <div className="flex items-center gap-2">
+              {text.trim() && !isPending && (
+                <button
+                  type="button"
+                  onClick={() => setText('')}
+                  className="px-3 py-2 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={handleBulkAssign}
+                disabled={isPending || enteredCount === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+              >
+                {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Assign All ({enteredCount})
+              </button>
+            </div>
           </div>
 
           {result && (
-            <div className={`p-3 rounded-xl text-sm ${result.errors.length === 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-              <p className="font-medium">{result.assigned} serial(s) assigned successfully.</p>
+            <div className={`p-3.5 rounded-xl text-sm border ${result.errors.length === 0 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
+              <p className="font-semibold flex items-center gap-1.5">
+                {result.errors.length === 0 ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                )}
+                {result.assigned.toLocaleString()} serial(s) assigned successfully.
+              </p>
               {result.errors.length > 0 && (
-                <ul className="mt-1 text-xs space-y-0.5">
+                <ul className="mt-1.5 text-xs space-y-0.5 border-t border-amber-200/60 pt-1.5">
                   {result.errors.map((e, i) => (
-                    <li key={i} className="text-red-700">• {e.serial}: {e.error}</li>
+                    <li key={i} className="text-rose-700 font-mono">• {e.serial}: {e.error}</li>
                   ))}
                 </ul>
               )}
@@ -427,6 +615,7 @@ export default function InboundDetailPage() {
           transactionId={detail.id}
           pendingCount={pendingItems.length}
           onComplete={fetchDetail}
+          onNotify={(modalData) => setFeedback({ isOpen: true, ...modalData })}
           skuOptions={skuOptions}
           defaultSku={detail.items[0]?.sku || ''}
         />

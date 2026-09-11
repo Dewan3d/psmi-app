@@ -363,8 +363,13 @@ export async function assignSerialNumber(data: {
   real_serial: string;
   transaction_id: string;
   sku_override?: string;
-}): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+}): Promise<{ error: string | null; pending_remaining?: number }> {
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
   const realSerial = data.real_serial.trim();
 
@@ -372,6 +377,26 @@ export async function assignSerialNumber(data: {
     return { error: 'Serial number cannot be empty' };
   }
 
+  // 1. Try atomic PostgreSQL RPC first
+  try {
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('assign_single_serial', {
+      p_transaction_id: data.transaction_id,
+      p_placeholder_serial: data.placeholder_serial,
+      p_real_serial: realSerial,
+      p_sku_override: data.sku_override || null,
+    });
+
+    if (!rpcErr && rpcRes) {
+      if (rpcRes.error) {
+        return { error: rpcRes.error };
+      }
+      return { error: null, pending_remaining: rpcRes.pending_remaining };
+    }
+  } catch (err) {
+    console.warn('RPC assign_single_serial fallback:', err);
+  }
+
+  // 2. Fallback execution with admin client
   // Check the placeholder exists and is still PENDING_SERIAL
   const { data: placeholder, error: fetchError } = await supabase
     .from('inventory_units')
@@ -387,22 +412,28 @@ export async function assignSerialNumber(data: {
     return { error: `This slot has already been assigned (status: ${placeholder.status})` };
   }
 
-  // Check the real serial doesn't already exist
+  // Check if real serial is already assigned to a transaction
+  const { data: existingTi } = await supabase
+    .from('transaction_items')
+    .select('id, transaction_id')
+    .eq('serial_number', realSerial)
+    .maybeSingle();
+
+  if (existingTi) {
+    return { error: `Serial number "${realSerial}" is already assigned to a receipt` };
+  }
+
+  // Check if unit exists in inventory_units (e.g. previously orphaned)
   const { data: existingUnit } = await supabase
     .from('inventory_units')
     .select('serial_number')
     .eq('serial_number', realSerial)
-    .single();
-
-  if (existingUnit) {
-    return { error: `Serial number "${realSerial}" already exists in inventory` };
-  }
+    .maybeSingle();
 
   // Determine the final SKU (override or original)
   let finalSku = placeholder.sku;
 
   if (data.sku_override && data.sku_override !== placeholder.sku) {
-    // Validate the override SKU exists
     const { data: overrideProduct } = await supabase
       .from('products')
       .select('sku, model_group')
@@ -413,7 +444,6 @@ export async function assignSerialNumber(data: {
       return { error: `Override SKU "${data.sku_override}" does not exist` };
     }
 
-    // Validate same model group
     const { data: originalProduct } = await supabase
       .from('products')
       .select('model_group')
@@ -427,34 +457,65 @@ export async function assignSerialNumber(data: {
     finalSku = data.sku_override;
   }
 
-  // Insert the real unit with final SKU
-  const { error: insertError } = await supabase
-    .from('inventory_units')
-    .insert({
-      serial_number: realSerial,
-      sku: finalSku,
-      location_id: placeholder.location_id,
-      status: 'IN_WAREHOUSE' as const,
-    });
+  if (existingUnit) {
+    // Unit was previously inserted, update its SKU/location/status to adopt it
+    const { error: updateUnitError } = await supabase
+      .from('inventory_units')
+      .update({
+        sku: finalSku,
+        location_id: placeholder.location_id,
+        status: 'IN_WAREHOUSE' as const,
+      })
+      .eq('serial_number', realSerial);
 
-  if (insertError) {
-    return { error: `Failed to insert real unit: ${insertError.message}` };
+    if (updateUnitError) {
+      return { error: `Failed to update inventory unit: ${updateUnitError.message}` };
+    }
+  } else {
+    // Insert the real unit with final SKU
+    const { error: insertError } = await supabase
+      .from('inventory_units')
+      .insert({
+        serial_number: realSerial,
+        sku: finalSku,
+        location_id: placeholder.location_id,
+        status: 'IN_WAREHOUSE' as const,
+      });
+
+    if (insertError) {
+      return { error: `Failed to insert real unit: ${insertError.message}` };
+    }
   }
 
   // Update transaction item to reference the real serial
-  await supabase
+  const { error: updateTiError } = await supabase
     .from('transaction_items')
     .update({ serial_number: realSerial })
     .eq('transaction_id', data.transaction_id)
     .eq('serial_number', data.placeholder_serial);
 
+  if (updateTiError) {
+    return { error: `Failed to update transaction item: ${updateTiError.message}` };
+  }
+
   // Delete the placeholder unit
-  await supabase
+  const { error: deleteError } = await supabase
     .from('inventory_units')
     .delete()
     .eq('serial_number', data.placeholder_serial);
 
-  return { error: null };
+  if (deleteError) {
+    console.warn('Failed to delete placeholder unit:', deleteError.message);
+  }
+
+  // Count remaining
+  const { count: pendingCount } = await supabase
+    .from('transaction_items')
+    .select('*', { count: 'exact', head: true })
+    .eq('transaction_id', data.transaction_id)
+    .like('serial_number', 'PENDING-%');
+
+  return { error: null, pending_remaining: pendingCount || 0 };
 }
 
 // ── Bulk assign serial numbers to a pending batch ─────────────
@@ -464,30 +525,62 @@ export async function bulkAssignSerials(data: {
   sku_override?: string;
 }): Promise<{
   assigned: number;
+  pending_remaining?: number;
   errors: { serial: string; error: string }[];
 }> {
-  const supabase = await createClient();
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
 
+  const cleanSerials = data.real_serials.map((s) => s.trim()).filter(Boolean);
+  if (cleanSerials.length === 0) {
+    return { assigned: 0, errors: [{ serial: 'BATCH', error: 'No valid serial numbers provided.' }] };
+  }
+
+  // 1. Try atomic PostgreSQL RPC
+  try {
+    const { data: rpcRes, error: rpcErr } = await supabase.rpc('assign_bulk_serials', {
+      p_transaction_id: data.transaction_id,
+      p_real_serials: cleanSerials,
+      p_sku_override: data.sku_override || null,
+    });
+
+    if (!rpcErr && rpcRes) {
+      return {
+        assigned: rpcRes.assigned || 0,
+        pending_remaining: rpcRes.pending_remaining,
+        errors: Array.isArray(rpcRes.errors) ? rpcRes.errors : [],
+      };
+    }
+  } catch (err) {
+    console.warn('RPC assign_bulk_serials fallback:', err);
+  }
+
+  // 2. Fallback execution with admin client
   // Get all pending placeholders for this transaction
   const { data: items, error: fetchError } = await supabase
     .from('transaction_items')
     .select('serial_number')
-    .eq('transaction_id', data.transaction_id);
+    .eq('transaction_id', data.transaction_id)
+    .like('serial_number', 'PENDING-%')
+    .order('serial_number', { ascending: true });
 
   if (fetchError || !items) {
     return { assigned: 0, errors: [{ serial: 'BATCH', error: 'Failed to load transaction items' }] };
   }
 
-  const pendingPlaceholders = items
-    .map((i) => i.serial_number)
-    .filter((sn) => sn.startsWith('PENDING-'));
+  const pendingPlaceholders = items.map((i: any) => i.serial_number);
 
-  if (data.real_serials.length > pendingPlaceholders.length) {
+  if (cleanSerials.length > pendingPlaceholders.length) {
     return {
       assigned: 0,
+      pending_remaining: pendingPlaceholders.length,
       errors: [{
         serial: 'BATCH',
-        error: `You provided ${data.real_serials.length} serials but only ${pendingPlaceholders.length} pending slots remain`,
+        error: `You provided ${cleanSerials.length} serials but only ${pendingPlaceholders.length} pending slots remain`,
       }],
     };
   }
@@ -495,22 +588,26 @@ export async function bulkAssignSerials(data: {
   let assigned = 0;
   const errors: { serial: string; error: string }[] = [];
 
-  for (let i = 0; i < data.real_serials.length; i++) {
+  for (let i = 0; i < cleanSerials.length; i++) {
     const result = await assignSerialNumber({
-      placeholder_serial: pendingPlaceholders[i],
-      real_serial: data.real_serials[i],
+      placeholder_serial: pendingPlaceholders[assigned],
+      real_serial: cleanSerials[i],
       transaction_id: data.transaction_id,
       sku_override: data.sku_override,
     });
 
     if (result.error) {
-      errors.push({ serial: data.real_serials[i], error: result.error });
+      errors.push({ serial: cleanSerials[i], error: result.error });
     } else {
       assigned++;
     }
   }
 
-  return { assigned, errors };
+  return {
+    assigned,
+    pending_remaining: pendingPlaceholders.length - assigned,
+    errors,
+  };
 }
 
 // ── Get inbound transaction with pending serial details ────────
@@ -643,7 +740,30 @@ export async function listInboundTransactions(): Promise<{
     return { data: [], error: error.message };
   }
 
-  const transactions = await Promise.all((data || []).map(async (t: any) => {
+  // Identify any large transactions where transaction_items exceeded PostgREST embed limit
+  const truncatedIds = (data || [])
+    .filter((t: any) => {
+      const isNonSerialized = (t.notes || '').includes('NON-SERIALIZED');
+      const totalItems = t.total?.[0]?.count ?? (t.transaction_items || []).length;
+      return !isNonSerialized && (t.transaction_items || []).length < totalItems;
+    })
+    .map((t: any) => t.id);
+
+  const pendingCountMap = new Map<string, number>();
+  if (truncatedIds.length > 0) {
+    await Promise.all(
+      truncatedIds.map(async (txnId: string) => {
+        const { count } = await supabase
+          .from('transaction_items')
+          .select('*', { count: 'exact', head: true })
+          .eq('transaction_id', txnId)
+          .like('serial_number', 'PENDING-%');
+        pendingCountMap.set(txnId, count || 0);
+      })
+    );
+  }
+
+  const transactions = (data || []).map((t: any) => {
     const items = t.transaction_items || [];
     const firstItem = items[0];
     const sku = firstItem?.inventory_units?.sku || '';
@@ -654,13 +774,7 @@ export async function listInboundTransactions(): Promise<{
     const isNonSerialized = (t.notes || '').includes('NON-SERIALIZED');
     if (!isNonSerialized) {
       if (items.length < totalItems) {
-        // Items were truncated by PostgREST 1000 limit, get exact pending count from DB
-        const { count } = await supabase
-          .from('transaction_items')
-          .select('*', { count: 'exact', head: true })
-          .eq('transaction_id', t.id)
-          .like('serial_number', 'PENDING-%');
-        pendingItems = count || 0;
+        pendingItems = pendingCountMap.get(t.id) ?? 0;
       } else {
         pendingItems = items.filter((i: any) => (i.serial_number || '').startsWith('PENDING-')).length;
       }
@@ -678,7 +792,7 @@ export async function listInboundTransactions(): Promise<{
       sku,
       model_name: modelName,
     };
-  }));
+  });
 
   return { data: transactions, error: null };
 }
