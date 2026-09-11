@@ -159,7 +159,7 @@ export default function ComboboxSelect({
 
       {/* Floating Dropdown Popover */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-fade-in">
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-[70] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
           {/* Live Search Input inside Popover */}
           <div className="p-2.5 border-b border-slate-100 bg-slate-50/50">
             <div className="relative">

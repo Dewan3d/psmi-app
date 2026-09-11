@@ -273,6 +273,35 @@ export async function updateSalePrice(data: {
   return { error: null };
 }
 
+// ── Batch update sale prices for multiple serials in a transaction
+export async function batchUpdateSalePrices(data: {
+  transaction_id: string;
+  serial_numbers: string[];
+  unit_price: number;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  if (data.unit_price < 0) {
+    return { error: 'Price cannot be negative' };
+  }
+
+  if (!data.serial_numbers || data.serial_numbers.length === 0) {
+    return { error: 'No serial numbers provided' };
+  }
+
+  const { error } = await supabase
+    .from('transaction_items')
+    .update({ sale_price: data.unit_price })
+    .eq('transaction_id', data.transaction_id)
+    .in('serial_number', data.serial_numbers);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null };
+}
+
 // ── Export sales data as CSV string ───────────────────────────
 export async function exportSalesCSV(filters?: {
   from_date?: string;

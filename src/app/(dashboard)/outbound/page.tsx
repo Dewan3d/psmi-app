@@ -32,13 +32,23 @@ import {
   Coins,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { reserveUnits, createOutboundTransaction, getFifoSerialsForQuantity, deleteOutboundTransaction } from '@/actions/outbound';
-import { uploadVerificationDoc, markTransactionVerified, getVerificationDocs, checkVerificationComplete } from '@/actions/verification';
+import {
+  uploadMultipleVerificationDocs,
+  deleteVerificationDoc,
+  markTransactionVerified,
+  getVerificationDocs,
+  checkVerificationComplete,
+} from '@/actions/verification';
 import { listProducts } from '@/actions/products';
 import { getFifoQueue } from '@/actions/inventory';
 import { formatNaira } from '@/lib/utils/currency';
+import { VerificationDocument } from '@/lib/types/database';
 
 import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
@@ -86,44 +96,87 @@ function VerificationPanel({
   onClose: () => void;
   onVerified: () => void;
 }) {
-  const [docs, setDocs] = useState<Record<string, string>>({});
+  const [docs, setDocs] = useState<Record<string, VerificationDocument[]>>({
+    WAYBILL: [],
+    PAYMENT_RECEIPT: [],
+    PAYMENT_SCREENSHOT: [],
+  });
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [verifying, startVerifying] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState('');
 
   const DOC_TYPES = [
-    { key: 'WAYBILL', label: 'Waybill' },
-    { key: 'PAYMENT_RECEIPT', label: 'Payment Receipt' },
-    { key: 'PAYMENT_SCREENSHOT', label: 'Finance Verification Email' },
+    { key: 'WAYBILL', label: 'Waybill', desc: 'Proof of dispatch/delivery or consignment note' },
+    { key: 'PAYMENT_RECEIPT', label: 'Payment Receipt', desc: 'Bank transfer receipt(s) or teller(s). Multiple allowed for batch payments.' },
+    { key: 'PAYMENT_SCREENSHOT', label: 'Finance Verification Email', desc: 'Email or approval from Bluetti finance verifying transaction' },
   ] as const;
 
+  async function loadDocs() {
+    const result = await getVerificationDocs(transactionId);
+    const map: Record<string, VerificationDocument[]> = {
+      WAYBILL: [],
+      PAYMENT_RECEIPT: [],
+      PAYMENT_SCREENSHOT: [],
+    };
+    for (const doc of result.data) {
+      if (!map[doc.document_type]) map[doc.document_type] = [];
+      map[doc.document_type].push(doc);
+    }
+    setDocs(map);
+  }
+
   useEffect(() => {
-    async function load() {
+    async function init() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setUserId(user.id);
-
-      const result = await getVerificationDocs(transactionId);
-      const map: Record<string, string> = {};
-      for (const doc of result.data) {
-        map[doc.document_type] = doc.storage_url;
-      }
-      setDocs(map);
+      await loadDocs();
     }
-    load();
+    init();
   }, [transactionId]);
 
-  async function handleUpload(docType: 'WAYBILL' | 'PAYMENT_RECEIPT' | 'PAYMENT_SCREENSHOT', file: File) {
+  async function handleUploadFiles(
+    docType: 'WAYBILL' | 'PAYMENT_RECEIPT' | 'PAYMENT_SCREENSHOT',
+    files: FileList | null
+  ) {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
     setUploading((prev) => ({ ...prev, [docType]: true }));
     setError(null);
-    const result = await uploadVerificationDoc({ transaction_id: transactionId, document_type: docType, file });
-    if (result.error) {
-      setError(result.error);
-    } else if (result.data) {
-      setDocs((prev) => ({ ...prev, [docType]: result.data!.storage_url }));
+
+    const result = await uploadMultipleVerificationDocs({
+      transaction_id: transactionId,
+      document_type: docType,
+      files: fileArray,
+    });
+
+    if (result.errors.length > 0) {
+      setError(result.errors.join('; '));
+    }
+    if (result.data.length > 0) {
+      setDocs((prev) => ({
+        ...prev,
+        [docType]: [...(prev[docType] || []), ...result.data],
+      }));
     }
     setUploading((prev) => ({ ...prev, [docType]: false }));
+  }
+
+  async function handleDelete(doc: VerificationDocument) {
+    setDeletingId(doc.id);
+    setError(null);
+    const result = await deleteVerificationDoc(doc.id, doc.storage_url);
+    if (result.error) {
+      setError(result.error);
+    } else {
+      setDocs((prev) => ({
+        ...prev,
+        [doc.document_type]: (prev[doc.document_type] || []).filter((d) => d.id !== doc.id),
+      }));
+    }
+    setDeletingId(null);
   }
 
   function handleVerify() {
@@ -138,90 +191,152 @@ function VerificationPanel({
     });
   }
 
-  const allUploaded = DOC_TYPES.every((d) => !!docs[d.key]);
+  const allUploaded = DOC_TYPES.every((d) => (docs[d.key] || []).length > 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl lg:max-w-3xl overflow-hidden animate-fade-in max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Verify Transaction</h2>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">{trackingNumber}</p>
+            <h2 className="text-base font-semibold text-slate-900">Verify Outbound Transaction</h2>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">Tracking #: {trackingNumber || '—'}</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        {/* Scrollable Body */}
+        <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
           <p className="text-sm text-slate-600">
-            Upload all three documents to verify this order and mark units as <strong>SOLD</strong>.
+            Upload verification documents for this order. You can upload <strong>multiple images or PDFs at once</strong> (e.g., when payment was made in multiple installments/batches).
           </p>
 
-          {DOC_TYPES.map(({ key, label }) => (
-            <div key={key} className="flex items-center justify-between gap-3 p-3 border border-slate-200 rounded-xl">
-              <div className="flex items-center gap-3">
-                {docs[key] ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                ) : (
-                  <div className="w-5 h-5 rounded-full border-2 border-slate-300 flex-shrink-0" />
-                )}
-                <span className="text-sm font-medium text-slate-700">{label}</span>
-              </div>
-              <div>
-                {docs[key] ? (
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Attached
-                    </span>
-                    <a
-                      href={docs[key]}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-lg transition-colors"
-                    >
-                      View Doc ↗
-                    </a>
+          <div className="space-y-4">
+            {DOC_TYPES.map(({ key, label, desc }) => {
+              const currentDocs = docs[key] || [];
+              const isUploading = !!uploading[key];
+
+              return (
+                <div key={key} className="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex items-start gap-3">
+                      {currentDocs.length > 0 ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full border-2 border-slate-300 flex-shrink-0 mt-0.5" />
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-800">{label}</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            currentDocs.length > 0
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {currentDocs.length > 0 ? `${currentDocs.length} file(s) attached` : 'Required'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                      </div>
+                    </div>
+
+                    {/* Upload button allowing multiple files */}
+                    <label className={`cursor-pointer inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all flex-shrink-0 ${
+                      isUploading
+                        ? 'bg-indigo-300 text-white cursor-not-allowed'
+                        : currentDocs.length > 0
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs'
+                    }`}>
+                      {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {isUploading ? 'Uploading…' : currentDocs.length > 0 ? '+ Add More' : 'Upload Images'}
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf"
+                        className="hidden"
+                        disabled={isUploading}
+                        onChange={(e) => {
+                          handleUploadFiles(key as any, e.target.files);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
                   </div>
-                ) : (
-                  <label className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${uploading[key] ? 'bg-indigo-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white shadow-xs hover:bg-indigo-700'}`}>
-                    {uploading[key] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    {uploading[key] ? 'Uploading…' : 'Upload'}
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      className="hidden"
-                      disabled={!!uploading[key]}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleUpload(key as any, file);
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-            </div>
-          ))}
+
+                  {/* List of uploaded files with preview/link & delete */}
+                  {currentDocs.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                      {currentDocs.map((doc, idx) => {
+                        const isDeleting = deletingId === doc.id;
+                        return (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="p-1.5 bg-white rounded-lg border border-slate-200 text-indigo-600 flex-shrink-0">
+                                <ImageIcon className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="font-medium text-slate-700 truncate">
+                                Document #{idx + 1}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <a
+                                href={doc.storage_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 font-semibold transition-colors"
+                              >
+                                View <ExternalLink className="w-3 h-3" />
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(doc)}
+                                disabled={isDeleting}
+                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                title="Remove this document"
+                              >
+                                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           {error && (
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
+            <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 font-medium">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-500" />
+              <span>{error}</span>
             </div>
           )}
+        </div>
 
-          <div className="flex gap-3 pt-1">
-            <button onClick={onClose} className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
-              Close
-            </button>
-            <button
-              onClick={handleVerify}
-              disabled={!allUploaded || verifying}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50"
-            >
-              {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
-              Mark as Verified
-            </button>
-          </div>
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-white flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="py-2.5 px-4 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+          <button
+            onClick={handleVerify}
+            disabled={!allUploaded || verifying}
+            className="flex items-center justify-center gap-2 py-2.5 px-5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-xs cursor-pointer"
+          >
+            {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+            Confirm & Mark as Verified
+          </button>
         </div>
       </div>
     </div>
@@ -251,6 +366,8 @@ function NewOutboundModal({
   const [serialSkuMap, setSerialSkuMap] = useState<Record<string, string>>({});
   const [showIndividualPrices, setShowIndividualPrices] = useState<Record<string, boolean>>({});
   const [bulkPriceInput, setBulkPriceInput] = useState<Record<string, string>>({});
+  const [bulkTotalInput, setBulkTotalInput] = useState<Record<string, string>>({});
+  const [bulkUnitInput, setBulkUnitInput] = useState<Record<string, string>>({});
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -328,12 +445,42 @@ function NewOutboundModal({
         return;
       }
 
-      const pricesArray = Object.entries(itemPrices)
-        .filter(([sn, p]) => selectedSerials.includes(sn) && p.trim() !== '')
-        .map(([sn, p]) => ({
+      // Build prices array with foolproof fallback:
+      // 1) itemPrices[sn]
+      // 2) bulkUnitInput[groupSku]
+      // 3) bulkTotalInput[groupSku] / groupCount
+      // 4) bulkPriceInput[groupSku]
+      // 5) product retail_price
+      const pricesArray = selectedSerials.map((sn) => {
+        const itemSku = serialSkuMap[sn] || (sn.startsWith('NS-') ? (sn.split('-')[1] || '') : '');
+        const groupSku = itemSku || '_other';
+
+        let price = parseFloat(itemPrices[sn] || '');
+        if (isNaN(price)) {
+          const unitInput = parseFloat(bulkUnitInput[groupSku] || bulkPriceInput[groupSku] || '');
+          if (!isNaN(unitInput) && unitInput > 0) {
+            price = unitInput;
+          } else {
+            const totalInput = parseFloat(bulkTotalInput[groupSku] || '');
+            const countInGroup = selectedSerials.filter(
+              (s) => (serialSkuMap[s] || (s.startsWith('NS-') ? (s.split('-')[1] || '') : '')) === itemSku
+            ).length;
+            if (!isNaN(totalInput) && countInGroup > 0) {
+              price = Math.round((totalInput / countInGroup) * 100) / 100;
+            } else {
+              const prod = products.find((p) => p.sku === groupSku);
+              if (prod?.retail_price != null) {
+                price = prod.retail_price;
+              }
+            }
+          }
+        }
+
+        return {
           serial_number: sn,
-          sale_price: parseFloat(p) || 0,
-        }));
+          sale_price: isNaN(price) ? 0 : price,
+        };
+      }).filter((p) => p.sale_price > 0);
 
       const result = await createOutboundTransaction({
         route: route as 'TB' | 'B2B' | 'B2C',
@@ -356,7 +503,7 @@ function NewOutboundModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-fade-in max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl lg:max-w-4xl overflow-hidden animate-fade-in max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
           <div>
@@ -733,19 +880,58 @@ function NewOutboundModal({
                         return sum + (isNaN(val) ? 0 : val);
                       }, 0);
 
-                      const applyBulkPrice = (priceStr: string) => {
-                        if (!priceStr) return;
-                        setItemPrices((prev) => {
-                          const updated = { ...prev };
-                          serials.forEach((sn) => {
-                            updated[sn] = priceStr;
+                      const handleUnitChange = (valStr: string) => {
+                        setBulkUnitInput((prev) => ({ ...prev, [groupSku]: valStr }));
+                        const unitNum = parseFloat(valStr);
+                        if (!isNaN(unitNum) && unitNum >= 0) {
+                          const totalNum = Math.round(unitNum * serials.length * 100) / 100;
+                          setBulkTotalInput((prev) => ({ ...prev, [groupSku]: String(totalNum) }));
+                          setItemPrices((prev) => {
+                            const updated = { ...prev };
+                            serials.forEach((sn) => {
+                              updated[sn] = String(unitNum);
+                            });
+                            return updated;
                           });
-                          return updated;
-                        });
+                        } else if (valStr === '') {
+                          setBulkTotalInput((prev) => ({ ...prev, [groupSku]: '' }));
+                          setItemPrices((prev) => {
+                            const updated = { ...prev };
+                            serials.forEach((sn) => {
+                              delete updated[sn];
+                            });
+                            return updated;
+                          });
+                        }
+                      };
+
+                      const handleTotalChange = (valStr: string) => {
+                        setBulkTotalInput((prev) => ({ ...prev, [groupSku]: valStr }));
+                        const totalNum = parseFloat(valStr);
+                        if (!isNaN(totalNum) && totalNum >= 0 && serials.length > 0) {
+                          const unitNum = Math.round((totalNum / serials.length) * 100) / 100;
+                          setBulkUnitInput((prev) => ({ ...prev, [groupSku]: String(unitNum) }));
+                          setItemPrices((prev) => {
+                            const updated = { ...prev };
+                            serials.forEach((sn) => {
+                              updated[sn] = String(unitNum);
+                            });
+                            return updated;
+                          });
+                        } else if (valStr === '') {
+                          setBulkUnitInput((prev) => ({ ...prev, [groupSku]: '' }));
+                          setItemPrices((prev) => {
+                            const updated = { ...prev };
+                            serials.forEach((sn) => {
+                              delete updated[sn];
+                            });
+                            return updated;
+                          });
+                        }
                       };
 
                       return (
-                        <div key={groupSku} className="border border-slate-200 rounded-xl bg-slate-50/50 p-3 space-y-2">
+                        <div key={groupSku} className="border border-slate-200 rounded-xl bg-slate-50/70 p-3.5 space-y-3">
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="text-xs font-semibold text-slate-800">
@@ -767,45 +953,60 @@ function NewOutboundModal({
                               className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer"
                             >
                               {isExpanded ? (
-                                <>Hide items <ChevronUp className="w-3.5 h-3.5" /></>
+                                <>Hide serial breakdown <ChevronUp className="w-3.5 h-3.5" /></>
                               ) : (
-                                <>Edit items ({serials.length}) <ChevronDown className="w-3.5 h-3.5" /></>
+                                <>Edit individual serials ({serials.length}) <ChevronDown className="w-3.5 h-3.5" /></>
                               )}
                             </button>
                           </div>
 
-                          {/* Bulk apply input for this SKU */}
-                          <div className="flex items-center gap-2 pt-1">
-                            <div className="relative flex-1">
-                              <span className="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono">₦</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={bulkPriceInput[groupSku] ?? ''}
-                                onChange={(e) =>
-                                  setBulkPriceInput((prev) => ({ ...prev, [groupSku]: e.target.value }))
-                                }
-                                placeholder={`Set price for all ${serials.length} units`}
-                                className="w-full pl-6 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                              />
+                          {/* Dual inputs: Total Price OR Unit Price (both stay synced in real time) */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                Total Price for all {serials.length} units (₦)
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-mono">₦</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={bulkTotalInput[groupSku] ?? (groupSubtotal > 0 ? String(groupSubtotal) : '')}
+                                  onChange={(e) => handleTotalChange(e.target.value)}
+                                  placeholder={`Total for ${serials.length} items`}
+                                  className="w-full pl-6 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                                />
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => applyBulkPrice(bulkPriceInput[groupSku])}
-                              className="px-2.5 py-1.5 text-xs font-medium bg-slate-200 text-slate-700 hover:bg-indigo-600 hover:text-white rounded-lg transition-colors"
-                            >
-                              Apply
-                            </button>
+
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                                Price Per Unit (₦)
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-mono">₦</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={bulkUnitInput[groupSku] ?? (serials[0] && itemPrices[serials[0]] ? itemPrices[serials[0]] : '')}
+                                  onChange={(e) => handleUnitChange(e.target.value)}
+                                  placeholder="Rate per item"
+                                  className="w-full pl-6 pr-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
+                                />
+                              </div>
+                            </div>
                           </div>
 
                           {/* Collapsible individual item prices */}
                           {isExpanded && (
-                            <div className="mt-2 pt-2 border-t border-slate-200 space-y-1.5 max-h-36 overflow-y-auto">
+                            <div className="mt-2 pt-2 border-t border-slate-200 space-y-1.5 max-h-40 overflow-y-auto">
+                              <p className="text-[10px] text-slate-400">Custom rate per serial number:</p>
                               {serials.map((sn) => (
                                 <div key={sn} className="flex items-center justify-between gap-2 text-xs bg-white px-2.5 py-1 rounded-lg border border-slate-100">
-                                  <span className="font-mono text-slate-600 truncate max-w-[140px] text-[11px]">{sn}</span>
-                                  <div className="relative w-32">
+                                  <span className="font-mono text-slate-600 truncate max-w-[160px] text-[11px]">{sn}</span>
+                                  <div className="relative w-36">
                                     <span className="absolute left-2 top-1 text-slate-400 font-mono text-[10px]">₦</span>
                                     <input
                                       type="number"

@@ -30,7 +30,7 @@ import {
   Calendar,
   Package,
 } from 'lucide-react';
-import { getSales, getSalesSummaryStats, updateSalePrice, exportSalesCSV } from '@/actions/sales';
+import { getSales, getSalesSummaryStats, updateSalePrice, batchUpdateSalePrices, exportSalesCSV } from '@/actions/sales';
 import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SaleRecord } from '@/lib/types/database';
 
@@ -194,6 +194,124 @@ function InlinePriceEditor({
   );
 }
 
+// ── SKU Batch Price Editor ────────────────────────────────────
+function SkuBatchPriceEditor({
+  transactionId,
+  sku,
+  modelName,
+  items,
+  onSaved,
+}: {
+  transactionId: string;
+  sku: string;
+  modelName: string;
+  items: Array<{ serial_number: string; sale_price: number | null }>;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<'total' | 'unit'>('total');
+  const [val, setVal] = useState('');
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const currentTotal = items.reduce((sum, i) => sum + (i.sale_price || 0), 0);
+  const allPriced = items.every((i) => i.sale_price != null && i.sale_price > 0);
+
+  function handleBatchSave() {
+    const raw = parseFloat(val.replace(/[₦,\s]/g, ''));
+    if (isNaN(raw) || raw < 0) {
+      setError('Please enter a valid positive number');
+      return;
+    }
+    const unitPrice = mode === 'total' ? raw / items.length : raw;
+    setError(null);
+    startTransition(async () => {
+      const result = await batchUpdateSalePrices({
+        transaction_id: transactionId,
+        serial_numbers: items.map((i) => i.serial_number),
+        unit_price: Math.round(unitPrice * 100) / 100,
+      });
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setVal('');
+        onSaved();
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-xs text-slate-800">{modelName}</span>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/70 text-slate-600">{sku}</span>
+          <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full">
+            {items.length} unit{items.length > 1 ? 's' : ''}
+          </span>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-0.5">
+          Subtotal: <strong className="font-mono text-emerald-700">{formatNaira(currentTotal)}</strong>
+          {!allPriced && (
+            <span className="text-amber-600 font-medium ml-1.5">⚠️ Unpriced items</span>
+          )}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden bg-white text-[11px] shadow-xs">
+          <button
+            type="button"
+            onClick={() => setMode('total')}
+            className={`px-2.5 py-1 transition-colors cursor-pointer ${
+              mode === 'total'
+                ? 'bg-indigo-600 text-white font-semibold'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Total Price
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('unit')}
+            className={`px-2.5 py-1 transition-colors cursor-pointer ${
+              mode === 'unit'
+                ? 'bg-indigo-600 text-white font-semibold'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Unit Price
+          </button>
+        </div>
+
+        <div className="relative w-36">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">₦</span>
+          <input
+            type="text"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleBatchSave();
+            }}
+            placeholder={mode === 'total' ? `Total for ${items.length}` : 'Per unit'}
+            className="w-full pl-6 pr-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleBatchSave}
+          disabled={isPending || !val.trim()}
+          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-xs cursor-pointer"
+        >
+          {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+          Apply
+        </button>
+      </div>
+      {error && <p className="w-full text-[10px] text-red-500">{error}</p>}
+    </div>
+  );
+}
+
 // ── Expandable Sale Row ───────────────────────────────────────
 function SaleRow({
   sale,
@@ -204,6 +322,19 @@ function SaleRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const badge = routeBadge[sale.route] || routeBadge.B2C;
+
+  // Group items by SKU for batch editing
+  const skuGroups = sale.items.reduce((acc, item) => {
+    if (!acc[item.sku]) {
+      acc[item.sku] = {
+        sku: item.sku,
+        model_name: item.model_name,
+        items: [],
+      };
+    }
+    acc[item.sku].items.push(item);
+    return acc;
+  }, {} as Record<string, { sku: string; model_name: string; items: typeof sale.items }>);
 
   return (
     <>
@@ -238,11 +369,6 @@ function SaleRow({
         <td className="px-4 py-3.5 text-sm font-mono font-semibold text-slate-900 text-right">
           {formatNaira(sale.total_sale)}
         </td>
-        <td className="px-4 py-3.5 text-right">
-          <span className={`text-sm font-mono font-semibold ${sale.profit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-            {formatNaira(sale.profit)}
-          </span>
-        </td>
         <td className="px-4 py-3.5 text-center">
           {sale.verified ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">
@@ -266,23 +392,37 @@ function SaleRow({
       {/* Expanded Item Details */}
       {expanded && (
         <tr className="bg-slate-50/50">
-          <td colSpan={9} className="px-4 py-3">
-            <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Serial Number</th>
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">SKU</th>
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Model</th>
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Sale Price</th>
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Cost Price</th>
-                    <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Profit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sale.items.map((item) => {
-                    const itemProfit = (item.sale_price || 0) - (item.cost_price || 0);
-                    return (
+          <td colSpan={8} className="px-4 py-3">
+            <div className="space-y-3">
+              {/* Batch price editor per SKU */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">Quick Batch Price Update by Model / SKU:</p>
+                {Object.values(skuGroups).map((group) => (
+                  <SkuBatchPriceEditor
+                    key={group.sku}
+                    transactionId={sale.transaction_id}
+                    sku={group.sku}
+                    modelName={group.model_name}
+                    items={group.items}
+                    onSaved={onPriceUpdated}
+                  />
+                ))}
+              </div>
+
+              {/* Items List Table */}
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Serial Number</th>
+                      <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">SKU</th>
+                      <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Model</th>
+                      <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Sale Price</th>
+                      <th className="px-4 py-2 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Cost Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sale.items.map((item) => (
                       <tr key={item.serial_number} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-2.5 text-xs font-mono text-slate-800">{item.serial_number}</td>
                         <td className="px-4 py-2.5 text-xs font-mono text-slate-600">{item.sku}</td>
@@ -298,23 +438,19 @@ function SaleRow({
                         <td className="px-4 py-2.5 text-xs font-mono text-slate-500 text-right">
                           {formatNaira(item.cost_price)}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <span className={`text-xs font-mono font-semibold ${itemProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                            {formatNaira(itemProfit)}
-                          </span>
-                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="flex items-center justify-between mt-2 px-1">
+
+            <div className="flex items-center justify-between mt-2.5 px-1">
               <span className="text-[10px] text-slate-400">
                 Sold by {sale.user_name}
               </span>
               <span className="text-xs font-mono font-semibold text-slate-700">
-                Total: {formatNaira(sale.total_sale)}
+                Order Total: {formatNaira(sale.total_sale)}
               </span>
             </div>
           </td>
@@ -551,7 +687,6 @@ export default function SalesPage() {
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-center">Items</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Total (₦)</th>
-                    <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Profit (₦)</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-center">Status</th>
                     <th className="px-4 py-3 w-10" />
                   </tr>

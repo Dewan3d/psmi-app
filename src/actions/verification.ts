@@ -23,43 +23,97 @@ export async function uploadVerificationDoc(data: {
   document_type: DocumentType;
   file: File;
 }): Promise<{ data: VerificationDocument | null; error: string | null }> {
+  const result = await uploadMultipleVerificationDocs({
+    transaction_id: data.transaction_id,
+    document_type: data.document_type,
+    files: [data.file],
+  });
+
+  if (result.errors.length > 0 && result.data.length === 0) {
+    return { data: null, error: result.errors[0] };
+  }
+
+  return { data: result.data[0] || null, error: null };
+}
+
+export async function uploadMultipleVerificationDocs(data: {
+  transaction_id: string;
+  document_type: DocumentType;
+  files: File[];
+}): Promise<{ data: VerificationDocument[]; errors: string[] }> {
+  const supabase = await createClient();
+  const uploadedDocs: VerificationDocument[] = [];
+  const errors: string[] = [];
+
+  for (const file of data.files) {
+    // Sanitize filename and create unique storage path
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `${data.transaction_id}/${data.document_type}-${Date.now()}-${sanitizedName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('verification-docs')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      errors.push(`Failed to upload ${file.name}: ${uploadError.message}`);
+      continue;
+    }
+
+    // Get the public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('verification-docs').getPublicUrl(filePath);
+
+    // Save the document reference in DB
+    const { data: doc, error: insertError } = await supabase
+      .from('verification_documents')
+      .insert({
+        transaction_id: data.transaction_id,
+        document_type: data.document_type,
+        storage_url: publicUrl,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      errors.push(`Failed to save record for ${file.name}: ${insertError.message}`);
+    } else if (doc) {
+      uploadedDocs.push(doc);
+    }
+  }
+
+  return { data: uploadedDocs, errors };
+}
+
+export async function deleteVerificationDoc(
+  docId: string,
+  storageUrl: string
+): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  // Upload file to Supabase Storage
-  const filePath = `${data.transaction_id}/${data.document_type}-${Date.now()}-${data.file.name}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('verification-docs')
-    .upload(filePath, data.file);
-
-  if (uploadError) {
-    return {
-      data: null,
-      error: `Failed to upload file: ${uploadError.message}`,
-    };
+  // Try extracting the relative path in the storage bucket
+  try {
+    const url = new URL(storageUrl);
+    const bucketPrefix = '/storage/v1/object/public/verification-docs/';
+    const pathIndex = url.pathname.indexOf(bucketPrefix);
+    if (pathIndex !== -1) {
+      const storagePath = decodeURIComponent(url.pathname.substring(pathIndex + bucketPrefix.length));
+      await supabase.storage.from('verification-docs').remove([storagePath]);
+    }
+  } catch (e) {
+    console.error('Failed to parse storage URL for deletion:', e);
   }
 
-  // Get the public URL
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('verification-docs').getPublicUrl(filePath);
-
-  // Save the document reference
-  const { data: doc, error: insertError } = await supabase
+  const { error: deleteError } = await supabase
     .from('verification_documents')
-    .insert({
-      transaction_id: data.transaction_id,
-      document_type: data.document_type,
-      storage_url: publicUrl,
-    })
-    .select()
-    .single();
+    .delete()
+    .eq('id', docId);
 
-  if (insertError) {
-    return { data: null, error: insertError.message };
+  if (deleteError) {
+    return { error: deleteError.message };
   }
 
-  return { data: doc, error: null };
+  return { error: null };
 }
 
 export async function checkVerificationComplete(
@@ -76,8 +130,8 @@ export async function checkVerificationComplete(
     .select('document_type')
     .eq('transaction_id', transactionId);
 
-  const uploaded = (docs || []).map(
-    (d) => d.document_type as DocumentType
+  const uploaded = Array.from(
+    new Set((docs || []).map((d) => d.document_type as DocumentType))
   );
   const missing = REQUIRED_DOCS.filter((t) => !uploaded.includes(t));
 
