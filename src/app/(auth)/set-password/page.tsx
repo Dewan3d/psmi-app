@@ -3,26 +3,64 @@
 // ============================================================
 // PSMI System — High-Contrast Set Password Page
 // ============================================================
+// Handles invite & recovery links.  Waits for Supabase to
+// exchange the URL-hash token for a real session before
+// showing the password form.
+// ============================================================
 
-import { useState, useEffect } from 'react';
-import { updatePassword } from '@/actions/auth';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Zap, Lock, CheckCircle2, Loader2 } from 'lucide-react';
+import { Zap, Lock, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
+
+type PageState = 'loading' | 'ready' | 'submitting' | 'success' | 'expired';
 
 export default function SetPasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [pageState, setPageState] = useState<PageState>('loading');
+
+  // Single persistent Supabase client for the lifetime of this page
+  const supabase = useMemo(() => createClient(), []);
+
+  // Track whether we got a valid session from the URL hash
+  const sessionResolved = useRef(false);
 
   useEffect(() => {
-    const supabase = createClient();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('SetPasswordPage Auth Event:', event, !!session);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+    // Supabase auto-detects the hash fragment (#access_token=...&type=recovery)
+    // and fires onAuthStateChange when it has exchanged it for a session.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('[SetPassword] Auth event:', event, '| session:', !!session);
+
+        if (sessionResolved.current) return; // only handle the first resolution
+
+        if (
+          (event === 'PASSWORD_RECOVERY' ||
+            event === 'SIGNED_IN' ||
+            event === 'TOKEN_REFRESHED' ||
+            event === 'INITIAL_SESSION') &&
+          session
+        ) {
+          sessionResolved.current = true;
+          setPageState('ready');
+        }
+      }
+    );
+
+    // Safety net: if no auth event fires within 8 seconds, the token is
+    // likely expired or invalid.
+    const timeout = setTimeout(() => {
+      if (!sessionResolved.current) {
+        setPageState('expired');
+      }
+    }, 8000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, [supabase]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,32 +72,32 @@ export default function SetPasswordPage() {
       setError('Password must be at least 8 characters');
       return;
     }
-    setLoading(true);
+    setPageState('submitting');
     setError(null);
 
     try {
-      const supabase = createClient();
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       });
 
       if (updateError) {
         setError(updateError.message);
-        setLoading(false);
+        setPageState('ready');
         return;
       }
 
-      setSuccess(true);
-      // Wait briefly so the user sees the confirmation, then redirect
+      setPageState('success');
+      // Brief pause so the user sees confirmation, then redirect
       setTimeout(() => {
         window.location.href = '/';
-      }, 1200);
+      }, 1500);
     } catch (err: any) {
       setError(err?.message || 'Failed to update password. Please try again.');
-      setLoading(false);
+      setPageState('ready');
     }
   }
 
+  // ── Render ─────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden font-sans selection:bg-indigo-500 selection:text-white">
       {/* Background glow */}
@@ -80,17 +118,53 @@ export default function SetPasswordPage() {
 
         {/* High-Contrast Glass Card */}
         <div className="bg-slate-900/90 backdrop-blur-2xl border border-slate-800 shadow-2xl rounded-2xl p-8 transition-all">
-          {success ? (
+
+          {/* ── STATE: Loading / verifying token ── */}
+          {pageState === 'loading' && (
+            <div className="text-center py-10">
+              <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mx-auto mb-4" />
+              <h2 className="text-lg font-bold text-white mb-1">Verifying your link…</h2>
+              <p className="text-xs text-slate-400">
+                Please wait while we validate your invitation.
+              </p>
+            </div>
+          )}
+
+          {/* ── STATE: Token expired / invalid ── */}
+          {pageState === 'expired' && (
+            <div className="text-center py-8">
+              <div className="inline-flex items-center justify-center w-14 h-14 bg-amber-500/20 border border-amber-500/30 rounded-full mb-4">
+                <AlertTriangle className="w-7 h-7 text-amber-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">Link Expired or Invalid</h2>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Your activation link has expired or was already used.
+                Please contact your administrator for a new invite.
+              </p>
+              <a
+                href="/login"
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition-all"
+              >
+                Go to Login
+              </a>
+            </div>
+          )}
+
+          {/* ── STATE: Success ── */}
+          {pageState === 'success' && (
             <div className="text-center py-6">
               <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-500/20 border border-emerald-500/30 rounded-full mb-4">
                 <CheckCircle2 className="w-7 h-7 text-emerald-400" />
               </div>
               <h2 className="text-xl font-bold text-white mb-2">Password Saved!</h2>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Your account is active. Redirecting you to the system dashboard...
+                Your account is active. Redirecting you to the system dashboard…
               </p>
             </div>
-          ) : (
+          )}
+
+          {/* ── STATE: Ready / form visible ── */}
+          {(pageState === 'ready' || pageState === 'submitting') && (
             <>
               <h2 className="text-xl font-bold text-white mb-2">Create Password</h2>
               <p className="text-xs text-slate-400 mb-6">
@@ -149,10 +223,10 @@ export default function SetPasswordPage() {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={pageState === 'submitting'}
                   className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50 text-sm flex items-center justify-center gap-2 cursor-pointer mt-2"
                 >
-                  {loading ? (
+                  {pageState === 'submitting' ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Updating…</span>

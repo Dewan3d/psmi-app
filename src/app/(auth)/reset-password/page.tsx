@@ -3,10 +3,15 @@
 // ============================================================
 // PSMI System — High-Contrast Reset Password Page
 // ============================================================
+// Two modes:
+//   1. "request" — user enters email to request a reset link
+//   2. "update"  — user landed here from a recovery link and
+//                  sets a new password (session from URL hash)
+// ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { resetPassword, updatePassword } from '@/actions/auth';
+import { resetPassword } from '@/actions/auth';
 import { createClient } from '@/lib/supabase/client';
 import { Zap, Mail, Lock, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -19,15 +24,24 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
-  // Check if this is a password reset callback
+  // Single persistent client
+  const supabase = useMemo(() => createClient(), []);
+  const sessionResolved = useRef(false);
+
+  // Check if this is a password reset callback (token in URL hash)
   useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setMode('update');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log('[ResetPassword] Auth event:', event, '| session:', !!session);
+        if (sessionResolved.current) return;
+        if (event === 'PASSWORD_RECOVERY' && session) {
+          sessionResolved.current = true;
+          setMode('update');
+        }
       }
-    });
-  }, []);
+    );
+    return () => subscription.unsubscribe();
+  }, [supabase]);
 
   async function handleRequestReset(e: React.FormEvent) {
     e.preventDefault();
@@ -56,7 +70,6 @@ export default function ResetPasswordPage() {
     setError(null);
 
     try {
-      const supabase = createClient();
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       });
@@ -253,3 +266,4 @@ export default function ResetPasswordPage() {
     </div>
   );
 }
+
