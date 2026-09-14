@@ -1192,7 +1192,8 @@ export default function OutboundPage() {
         )
       `)
       .eq('type', 'OUTBOUND')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50);
 
     if (fetchError) { setError(fetchError.message); setLoading(false); return; }
 
