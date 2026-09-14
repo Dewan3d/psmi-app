@@ -715,6 +715,31 @@ export async function listInboundTransactions(): Promise<{
 }> {
   const supabase = (await createClient()) as any;
 
+  // Use the pre-aggregated database view for instant query execution (<100ms)
+  const { data: viewData, error: viewError } = await supabase
+    .from('inbound_shipments_overview')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (!viewError && viewData) {
+    return {
+      data: viewData.map((row: any) => ({
+        id: row.id,
+        tracking_number: row.tracking_number,
+        notes: row.notes,
+        created_at: row.created_at,
+        location_name: row.location_name || 'Unknown',
+        user_name: row.user_name || 'Unknown',
+        total_items: Number(row.total_items) || 0,
+        pending_items: Number(row.pending_items) || 0,
+        sku: row.sku || '',
+        model_name: row.model_name || '',
+      })),
+      error: null,
+    };
+  }
+
+  // Fallback if view is not accessible
   const { data, error } = await supabase
     .from('transactions')
     .select(`
