@@ -54,9 +54,26 @@ export default function ResetPasswordPage() {
     }
     setLoading(true);
     setError(null);
-    const result = await updatePassword(password);
-    if (result?.error) {
-      setError(result.error);
+
+    try {
+      const supabase = createClient();
+      const { error: updateError } = await supabase.auth.updateUser({
+        password,
+      });
+
+      if (updateError) {
+        setError(updateError.message);
+        setLoading(false);
+        return;
+      }
+
+      setMode('request');
+      setSent(true);
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1200);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to update password. Please try again.');
       setLoading(false);
     }
   }
