@@ -79,6 +79,7 @@ export interface Transaction {
   notes: string | null;
   verified: boolean;
   customer_name?: string | null;
+  sales_manager?: string | null;
   created_at: string;
 }
 
@@ -108,6 +109,37 @@ export interface AuditLogEntry {
   new_data: Record<string, unknown> | null;
   user_id: string | null;
   created_at: string;
+}
+
+// ============================================================
+// Aftersales Replacements
+// ============================================================
+
+export interface AftersalesReplacement {
+  id: string;
+  linked_transaction_id: string | null;
+  customer_name: string;
+  reason: string;
+  notes: string | null;
+  handled_by: string;
+  created_at: string;
+}
+
+export interface AftersalesReplacementItem {
+  id: string;
+  replacement_id: string;
+  original_serial: string;
+  replacement_serial: string | null;
+  sku: string;
+  created_at: string;
+}
+
+export interface AftersalesReplacementWithDetails extends AftersalesReplacement {
+  profiles?: Profile;
+  linked_transaction?: Transaction | null;
+  items: (AftersalesReplacementItem & {
+    product?: Product | null;
+  })[];
 }
 
 // ============================================================
@@ -157,6 +189,7 @@ export interface SaleRecord {
   tracking_number: string | null;
   route: 'B2B' | 'B2C';
   customer_name: string | null;
+  sales_manager?: string | null;
   created_at: string;
   verified: boolean;
   user_name: string;
@@ -257,6 +290,7 @@ export interface Database {
           tracking_number?: string;
           verified?: boolean;
           customer_name?: string | null;
+          sales_manager?: string | null;
         };
         Update: Partial<Omit<Transaction, 'id'>>;
       };
@@ -284,6 +318,22 @@ export interface Database {
           created_at?: string;
         };
         Update: never;
+      };
+      aftersales_replacements: {
+        Row: AftersalesReplacement;
+        Insert: Omit<AftersalesReplacement, 'id' | 'created_at'> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<AftersalesReplacement, 'id'>>;
+      };
+      aftersales_replacement_items: {
+        Row: AftersalesReplacementItem;
+        Insert: Omit<AftersalesReplacementItem, 'id' | 'created_at'> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<AftersalesReplacementItem, 'id'>>;
       };
     };
     Enums: {

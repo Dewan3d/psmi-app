@@ -374,6 +374,16 @@ function SaleRow({
         <td className="px-4 py-3.5 text-sm text-slate-700 max-w-[180px] truncate">
           {sale.customer_name || <span className="text-slate-300 italic">No customer</span>}
         </td>
+        <td className="px-4 py-3.5 text-sm text-slate-700 max-w-[160px] truncate">
+          {sale.sales_manager ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-slate-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+              {sale.sales_manager}
+            </span>
+          ) : (
+            <span className="text-slate-300 italic">—</span>
+          )}
+        </td>
         <td className="px-4 py-3.5 text-sm text-slate-600 text-center">
           {sale.items.length}
         </td>
@@ -403,7 +413,7 @@ function SaleRow({
       {/* Expanded Item Details */}
       {expanded && (
         <tr className="bg-slate-50/50">
-          <td colSpan={8} className="px-4 py-3">
+          <td colSpan={9} className="px-4 py-3">
             <div className="space-y-3">
               {/* Batch price editor per SKU */}
               {!isViewer && (
@@ -460,7 +470,7 @@ function SaleRow({
 
             <div className="flex items-center justify-between mt-2.5 px-1">
               <span className="text-[10px] text-slate-400">
-                Sold by {sale.user_name}
+                {sale.sales_manager ? `Sales Manager: ${sale.sales_manager} • ` : ''}Recorded by {sale.user_name}
               </span>
               <span className="text-xs font-mono font-semibold text-slate-700">
                 Order Total: {formatNaira(sale.total_sale)}
@@ -621,7 +631,7 @@ export default function SalesPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search customer or tracking #..."
+            placeholder="Search customer, sales manager, or tracking #..."
             className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all shadow-sm"
           />
           {searchQuery && (
@@ -636,19 +646,13 @@ export default function SalesPage() {
       </div>
 
       {/* ── KPI Cards ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           title="Total Revenue"
           value={stats ? formatNairaCompact(stats.total_revenue) : '—'}
           subtitle={stats ? `${stats.transaction_count} transaction(s)` : undefined}
           icon={<DollarSign className="w-5 h-5" />}
           accent="indigo"
-        />
-        <KpiCard
-          title="Total Cost"
-          value={stats ? formatNairaCompact(stats.total_cost) : '—'}
-          icon={<ShoppingBag className="w-5 h-5" />}
-          accent="amber"
         />
         <KpiCard
           title="Gross Profit"
@@ -698,6 +702,7 @@ export default function SalesPage() {
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Tracking #</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Route</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Sales Manager</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-center">Items</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-right">Total (₦)</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider text-center">Status</th>

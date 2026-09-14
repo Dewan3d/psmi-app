@@ -29,7 +29,7 @@ export async function getSales(filters?: {
   // 1. Fetch outbound transactions (B2B + B2C only)
   let query = supabase
     .from('transactions')
-    .select('id, tracking_number, route, customer_name, created_at, verified, user_id, notes', { count: 'exact' })
+    .select('id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes', { count: 'exact' })
     .eq('type', 'OUTBOUND')
     .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
     .order('created_at', { ascending: false });
@@ -37,7 +37,7 @@ export async function getSales(filters?: {
   if (filters?.from_date) query = query.gte('created_at', filters.from_date);
   if (filters?.to_date) query = query.lte('created_at', filters.to_date);
   if (filters?.search) {
-    query = query.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%`);
+    query = query.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%,sales_manager.ilike.%${filters.search}%`);
   }
 
   const limit = filters?.limit || 50;
@@ -125,6 +125,7 @@ export async function getSales(filters?: {
       tracking_number: txn.tracking_number,
       route: txn.route as 'B2B' | 'B2C',
       customer_name: txn.customer_name,
+      sales_manager: txn.sales_manager || null,
       created_at: txn.created_at,
       verified: txn.verified,
       user_name: profileMap.get(txn.user_id) || 'Unknown',

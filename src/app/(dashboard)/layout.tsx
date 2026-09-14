@@ -26,6 +26,7 @@ import {
   Zap,
   ArrowLeftRight,
   TrendingUp,
+  RotateCcw,
 } from 'lucide-react';
 import { signOut } from '@/actions/auth';
 import GlobalSearchBar from './components/global-search-bar';
@@ -37,6 +38,7 @@ const navItems = [
   { label: 'Inbound', href: '/inbound', icon: PackageOpen },
   { label: 'Outbound', href: '/outbound', icon: Truck },
   { label: 'Sales', href: '/sales', icon: TrendingUp },
+  { label: 'Aftersales', href: '/aftersales', icon: RotateCcw },
   { label: 'Inventory', href: '/inventory', icon: Boxes },
   { label: 'SKU Swap', href: '/sku-swap', icon: ArrowLeftRight },
   { label: 'Settings', href: '/settings', icon: Settings },

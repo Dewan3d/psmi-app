@@ -68,6 +68,7 @@ type OutboundSummary = {
   sku: string;
   model_name: string;
   customer_name?: string | null;
+  sales_manager?: string | null;
 };
 
 type Product = {
@@ -357,6 +358,7 @@ function NewOutboundModal({
   const [fromLocationId, setFromLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [salesManager, setSalesManager] = useState('');
   const [sku, setSku] = useState('');
   const [selectedSerials, setSelectedSerials] = useState<string[]>([]);
   const [manualSerial, setManualSerial] = useState('');
@@ -432,6 +434,10 @@ function NewOutboundModal({
       setError('Please enter a customer or client name');
       return;
     }
+    if ((route === 'B2B' || route === 'B2C') && !salesManager.trim()) {
+      setError('Please enter who made the sale (Sales Manager)');
+      return;
+    }
     if (selectedSerials.length === 0) { setError('Add at least one serial number'); return; }
 
     setShowConfirm(true);
@@ -491,6 +497,7 @@ function NewOutboundModal({
         user_id: userId,
         notes: notes || undefined,
         customer_name: (route === 'B2B' || route === 'B2C') ? customerName.trim() : undefined,
+        sales_manager: (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
         item_prices: (route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined,
       });
       if (result.error) { setError(result.error); setShowConfirm(false); return; }
@@ -571,20 +578,37 @@ function NewOutboundModal({
               </div>
 
               {(route === 'B2B' || route === 'B2C') && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Customer / Client Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="e.g. Dangote Industries Ltd, John Doe"
-                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Name of the customer receiving this order. Recorded on the sales log.
-                  </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Customer / Client Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="e.g. Dangote Industries Ltd, John Doe"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Name of the customer receiving this order.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Sales Manager / Sold By <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={salesManager}
+                      onChange={(e) => setSalesManager(e.target.value)}
+                      placeholder="e.g. Adebayo Ogunlesi"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Sales person who made or closed this sale.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -604,6 +628,10 @@ function NewOutboundModal({
                   }
                   if ((route === 'B2B' || route === 'B2C') && !customerName.trim()) {
                     setError('Please enter customer/client name for B2B/B2C sales');
+                    return;
+                  }
+                  if ((route === 'B2B' || route === 'B2C') && !salesManager.trim()) {
+                    setError('Please enter who made the sale (Sales Manager)');
                     return;
                   }
                   setError(null);
@@ -1094,6 +1122,11 @@ function NewOutboundModal({
                   <strong className="text-slate-900">Customer:</strong> {customerName}
                 </p>
               )}
+              {salesManager && (
+                <p>
+                  <strong className="text-slate-900">Sales Manager:</strong> {salesManager}
+                </p>
+              )}
               <p>
                 <strong className="text-slate-900">Units:</strong> {selectedSerials.length} unit(s)
               </p>
@@ -1146,6 +1179,7 @@ export default function OutboundPage() {
         verified,
         notes,
         customer_name,
+        sales_manager,
         from_loc:locations!from_location_id(name),
         to_loc:locations!to_location_id(name),
         profiles(full_name),
@@ -1176,6 +1210,7 @@ export default function OutboundPage() {
           verified: t.verified,
           notes: t.notes,
           customer_name: t.customer_name || null,
+          sales_manager: t.sales_manager || null,
           from_name: t.from_loc?.name || 'Warehouse',
           to_name: t.to_loc?.name || t.customer_name || 'Customer / B2B',
           user_name: t.profiles?.full_name || 'System',
@@ -1327,6 +1362,11 @@ export default function OutboundPage() {
                           {txn.customer_name && txn.customer_name !== txn.to_name && (
                             <span className="text-[11px] font-semibold text-violet-600 mt-0.5 flex items-center gap-1">
                               <User className="w-3 h-3" /> {txn.customer_name}
+                            </span>
+                          )}
+                          {txn.sales_manager && (
+                            <span className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                              <span className="text-slate-400">Rep:</span> {txn.sales_manager}
                             </span>
                           )}
                         </div>

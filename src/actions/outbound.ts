@@ -73,6 +73,7 @@ export async function createOutboundTransaction(data: {
   user_id: string;
   notes?: string;
   customer_name?: string;
+  sales_manager?: string;
   item_prices?: { serial_number: string; sale_price: number }[];
 }): Promise<{ data: Transaction | null; error: string | null }> {
   const supabase = await createClient();
@@ -81,7 +82,7 @@ export async function createOutboundTransaction(data: {
     return { data: null, error: 'No serial numbers provided' };
   }
 
-  // Validate all units are RESERVED
+  // Verify all serials are currently RESERVED
   const { data: units } = await supabase
     .from('inventory_units')
     .select('serial_number, status')
@@ -107,6 +108,7 @@ export async function createOutboundTransaction(data: {
       user_id: data.user_id,
       notes: data.notes || null,
       customer_name: data.customer_name || null,
+      sales_manager: data.sales_manager || null,
     })
     .select()
     .single();
