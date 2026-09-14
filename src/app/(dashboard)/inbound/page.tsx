@@ -42,6 +42,7 @@ import { createClient } from '@/lib/supabase/client';
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
+import { useUser } from '../components/user-context';
 
 type InboundSummary = {
   id: string;
@@ -727,6 +728,7 @@ function NewInboundModal({
 const ITEMS_PER_PAGE = 10;
 
 export default function InboundPage() {
+  const { isViewer } = useUser();
   const [transactions, setTransactions] = useState<InboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -856,13 +858,15 @@ export default function InboundPage() {
             Receive inventory — log quantities now, assign serial numbers later.
           </p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
-        >
-          <Plus className="w-4 h-4" />
-          New Inbound Receipt
-        </button>
+        {!isViewer && (
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+          >
+            <Plus className="w-4 h-4" />
+            New Inbound Receipt
+          </button>
+        )}
       </div>
 
       {/* ── Pending Serials Alert ───────────────────────────── */}
@@ -1012,18 +1016,20 @@ export default function InboundPage() {
                       <div className="flex items-center justify-end gap-3">
                         <Link
                           href={`/inbound/${txn.id}`}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50/60 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
                         >
-                          View <ChevronRight className="w-3.5 h-3.5" />
+                          Details <ChevronRight className="w-3.5 h-3.5" />
                         </Link>
-                        <button
-                          onClick={() => setTxnToDelete(txn)}
-                          disabled={isDeleteLoading}
-                          className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
-                          title="Delete inbound receipt"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!isViewer && (
+                          <button
+                            onClick={() => setTxnToDelete(txn)}
+                            disabled={isDeleteLoading}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
+                            title="Delete inbound receipt"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

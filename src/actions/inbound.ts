@@ -799,6 +799,19 @@ export async function listInboundTransactions(): Promise<{
 
 // ── Delete inbound receipt (Pending or un-dispatched units) ──────────
 export async function deleteInboundTransaction(transactionId: string): Promise<{ error: string | null; deletedCount?: number }> {
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (user) {
+    const { data: profile } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot delete inbound receipts.' };
+    }
+  }
+
   let supabase: any;
   try {
     supabase = createAdminClient();

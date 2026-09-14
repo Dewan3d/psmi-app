@@ -29,6 +29,7 @@ import { getInboundTransaction, assignSerialNumber, bulkAssignSerials, deleteInb
 import { createClient } from '@/lib/supabase/client';
 import ConfirmModal from '../../components/confirm-modal';
 import FeedbackModal from '../../components/feedback-modal';
+import { useUser } from '../../components/user-context';
 
 type InboundDetail = {
   id: string;
@@ -445,6 +446,7 @@ function BulkAssignPanel({
 export default function InboundDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { isViewer } = useUser();
   const [detail, setDetail] = useState<InboundDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -594,14 +596,16 @@ export default function InboundDetailPage() {
                 All {totalCount.toLocaleString()} serials assigned
               </span>
             )}
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={isDeleting}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-              Delete Receipt
-            </button>
+            {!isViewer && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete Receipt
+              </button>
+            )}
           </div>
         </div>
         {detail.notes && (
@@ -610,7 +614,7 @@ export default function InboundDetailPage() {
       </div>
 
       {/* ── Bulk Panel ─────────────────────────────────────── */}
-      {pendingItems.length > 0 && (
+      {pendingItems.length > 0 && !isViewer && (
         <BulkAssignPanel
           transactionId={detail.id}
           pendingCount={pendingItems.length}
@@ -630,22 +634,43 @@ export default function InboundDetailPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-800">Pending Serial Assignment</h2>
-              <p className="text-xs text-slate-400">{pendingItems.length} unit(s) need real serial numbers</p>
+              <p className="text-xs text-slate-400">
+                {isViewer
+                  ? `${pendingItems.length} unit(s) awaiting serial number assignment by warehouse admin`
+                  : `${pendingItems.length} unit(s) need real serial numbers`}
+              </p>
             </div>
           </div>
           <div className="p-5 space-y-3">
-            {pendingItems.map((item, index) => (
-              <div key={item.serial_number}>
-                <p className="text-xs text-slate-400 font-medium mb-1">Slot {index + 1}</p>
-                <SerialAssignmentRow
-                  placeholder={item.serial_number}
-                  transactionId={detail.id}
-                  onAssigned={fetchDetail}
-                  skuOptions={skuOptions}
-                  defaultSku={item.sku}
-                />
+            {isViewer ? (
+              <div className="space-y-2">
+                <div className="p-3 bg-amber-50/70 border border-amber-100 rounded-xl text-xs text-amber-800">
+                  You are viewing this receipt in <strong>View Only</strong> mode. Only Admin or Warehouse Managers can assign physical serial numbers.
+                </div>
+                <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                  {pendingItems.map((item, idx) => (
+                    <div key={item.serial_number} className="p-3 flex items-center justify-between text-xs bg-white">
+                      <span className="text-slate-500 font-medium">Slot #{idx + 1}</span>
+                      <span className="font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.serial_number}</span>
+                      <span className="text-amber-600 font-medium font-mono text-[11px]">{item.sku}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            ) : (
+              pendingItems.map((item, index) => (
+                <div key={item.serial_number}>
+                  <p className="text-xs text-slate-400 font-medium mb-1">Slot {index + 1}</p>
+                  <SerialAssignmentRow
+                    placeholder={item.serial_number}
+                    transactionId={detail.id}
+                    onAssigned={fetchDetail}
+                    skuOptions={skuOptions}
+                    defaultSku={item.sku}
+                  />
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

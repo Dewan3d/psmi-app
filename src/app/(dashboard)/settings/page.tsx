@@ -31,7 +31,9 @@ import {
   Ban,
   Search,
   Upload,
+  ShieldAlert,
 } from 'lucide-react';
+import Link from 'next/link';
 import { createProduct, updateProduct, deleteProduct, listProducts, bulkUpdatePrices } from '@/actions/products';
 import { createLocation, updateLocation, listLocations } from '@/actions/locations';
 import { listUsers, updateUserRole, assignUserLocation, inviteUser } from '@/actions/users';
@@ -1282,7 +1284,7 @@ function UserSection({
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
-  const [inviteRole, setInviteRole] = useState<UserRole>('BRANCH_STAFF');
+  const [inviteRole, setInviteRole] = useState<UserRole>('VIEWER');
   const [inviteLocation, setInviteLocation] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isPending, startTransition] = useTransition();
@@ -1331,7 +1333,7 @@ function UserSection({
       setSuccess(`Invite sent to ${inviteEmail}`);
       setInviteEmail('');
       setInviteName('');
-      setInviteRole('BRANCH_STAFF');
+      setInviteRole('VIEWER');
       setInviteLocation('');
       setShowInvite(false);
       setShowInviteConfirm(false);
@@ -1406,13 +1408,16 @@ function UserSection({
                   onChange={(e) => setInviteRole(e.target.value as UserRole)}
                   className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 >
-                  <option value="BRANCH_STAFF">Branch Staff</option>
+                  <option value="VIEWER">Viewer (Read Only)</option>
+                  <option value="ADMIN">Admin (Full Control)</option>
                   <option value="WAREHOUSE_MANAGER">Warehouse Manager</option>
-                  <option value="ADMIN">Admin</option>
+                  <option value="BRANCH_STAFF">Branch Staff</option>
                 </select>
                 <p className="text-[11px] text-slate-500 mt-1 leading-snug">
                   {inviteRole === 'ADMIN'
                     ? '🛡️ Full access: SKU cataloguing, locations, user permissions, audit logs.'
+                    : inviteRole === 'VIEWER'
+                    ? '👁️ Viewer: Read-only access to view stock, sales, inbound, and outbound operations.'
                     : inviteRole === 'WAREHOUSE_MANAGER'
                     ? '📦 Operations: Inbound receiving, serial uploads, outbound transits.'
                     : '🏪 Branch access: View stock, receive transfers, delivery notes.'}
@@ -1495,12 +1500,14 @@ function UserSection({
               className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${
                 u.role === 'ADMIN'
                   ? 'bg-red-50 text-red-600 border border-red-100'
+                  : u.role === 'VIEWER'
+                  ? 'bg-blue-50 text-blue-600 border border-blue-100'
                   : u.role === 'WAREHOUSE_MANAGER'
                   ? 'bg-indigo-50 text-indigo-600 border border-indigo-100'
                   : 'bg-slate-50 text-slate-600 border border-slate-200'
               }`}
             >
-              {u.role?.replace('_', ' ')}
+              {u.role === 'VIEWER' ? 'VIEWER' : u.role?.replace('_', ' ')}
             </span>
           </div>
         ))}
@@ -1727,8 +1734,29 @@ export default function SettingsPage() {
     role: 'BRANCH_STAFF',
   };
   const isAdmin = profile.role === 'ADMIN';
+  const isViewer = profile.role === 'VIEWER';
   const isManager =
     profile.role === 'ADMIN' || profile.role === 'WAREHOUSE_MANAGER';
+
+  if (isViewer) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 animate-fade-in">
+        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-4 border border-red-100 shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h1 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h1>
+        <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+          Settings and system configuration are restricted to Admin accounts only. You are currently signed in with a View-Only account.
+        </p>
+        <Link
+          href="/"
+          className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+        >
+          Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">

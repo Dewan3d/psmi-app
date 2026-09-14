@@ -52,6 +52,7 @@ import { VerificationDocument } from '@/lib/types/database';
 
 import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
+import { useUser } from '../components/user-context';
 
 type OutboundSummary = {
   id: string;
@@ -1120,6 +1121,7 @@ function NewOutboundModal({
 const ITEMS_PER_PAGE = 10;
 
 export default function OutboundPage() {
+  const { isViewer } = useUser();
   const [transactions, setTransactions] = useState<OutboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1250,13 +1252,15 @@ export default function OutboundPage() {
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Outbound Operations</h1>
           <p className="text-sm text-slate-500 mt-1">Manage dispatch workflows, branch transfers, and sales orders.</p>
         </div>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
-        >
-          <Plus className="w-4 h-4" />
-          Create Outbound Order
-        </button>
+        {!isViewer && (
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+          >
+            <Plus className="w-4 h-4" />
+            Create Outbound Order
+          </button>
+        )}
       </div>
 
       {/* ── Table ──────────────────────────────────────────── */}
@@ -1273,9 +1277,11 @@ export default function OutboundPage() {
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="p-4 bg-slate-50 rounded-2xl mb-3"><FileX className="w-8 h-8 text-slate-300" /></div>
             <p className="text-sm text-slate-500">No outbound transactions yet</p>
-            <button onClick={() => setShowNewModal(true)} className="mt-4 text-sm text-indigo-600 font-medium hover:underline">
-              Create your first outbound order →
-            </button>
+            {!isViewer && (
+              <button onClick={() => setShowNewModal(true)} className="mt-4 text-sm text-indigo-600 font-medium hover:underline">
+                Create your first outbound order →
+              </button>
+            )}
           </div>
         )}
 
@@ -1331,12 +1337,18 @@ export default function OutboundPage() {
                             <CheckCircle2 className="w-3.5 h-3.5" />Verified
                           </span>
                         ) : needsVerify ? (
-                          <button
-                            onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/50 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors cursor-pointer"
-                          >
-                            <AlertCircle className="w-3.5 h-3.5" />Verify Now
-                          </button>
+                          isViewer ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/50 rounded-full px-2.5 py-1">
+                              <AlertCircle className="w-3.5 h-3.5" />Pending Verification
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/50 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors cursor-pointer"
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" />Verify Now
+                            </button>
+                          )
                         ) : (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200/50 rounded-full px-2.5 py-1">
                             <Truck className="w-3.5 h-3.5" />In Transit
@@ -1355,7 +1367,7 @@ export default function OutboundPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-end gap-3">
-                          {needsVerify && (
+                          {needsVerify && !isViewer && (
                             <button
                               onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}
                               className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
@@ -1363,7 +1375,7 @@ export default function OutboundPage() {
                               Verify <ChevronRight className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {!txn.verified && (
+                          {!txn.verified && !isViewer && (
                             <button
                               onClick={() => setTxnToDelete(txn)}
                               disabled={isDeleteLoading}

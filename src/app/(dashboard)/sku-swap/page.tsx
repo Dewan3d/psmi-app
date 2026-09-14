@@ -22,7 +22,10 @@ import {
   ArrowRight,
   Info,
   Layers,
+  ShieldAlert,
 } from 'lucide-react';
+import Link from 'next/link';
+import { useUser } from '../components/user-context';
 import { lookupUnit, swapUnitSku, bulkSwapSku, getSwapHistory } from '@/actions/sku-swap';
 import { listProducts } from '@/actions/products';
 import type { SkuSwapResult, UnitStatus } from '@/lib/types/database';
@@ -607,7 +610,28 @@ function SwapHistoryTab() {
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function SkuSwapPage() {
+  const { isViewer } = useUser();
   const [activeTab, setActiveTab] = useState<Tab>('single');
+
+  if (isViewer) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 animate-fade-in">
+        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-4 border border-red-100 shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h1 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h1>
+        <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+          SKU Swap operations are restricted to Admin accounts only. You are currently signed in with a View-Only account.
+        </p>
+        <Link
+          href="/"
+          className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+        >
+          Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   const tabs: { key: Tab; label: string; icon: any }[] = [
     { key: 'single', label: 'Single Swap', icon: ArrowLeftRight },

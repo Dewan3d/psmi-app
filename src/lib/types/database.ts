@@ -20,7 +20,7 @@ export type OutboundRoute = 'TB' | 'B2B' | 'B2C';
 
 export type ProductCategory = 'POWER_STATION' | 'SHS' | 'ACCESSORIES';
 
-export type UserRole = 'ADMIN' | 'WAREHOUSE_MANAGER' | 'BRANCH_STAFF';
+export type UserRole = 'ADMIN' | 'VIEWER' | 'WAREHOUSE_MANAGER' | 'BRANCH_STAFF';
 
 export type LocationType = 'WAREHOUSE' | 'BRANCH';
 

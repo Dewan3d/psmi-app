@@ -276,6 +276,19 @@ export async function getFifoSerialsForQuantity(data: {
 
 // ── Delete outbound dispatch (revert units status and remove transaction) ────
 export async function deleteOutboundTransaction(transactionId: string): Promise<{ error: string | null }> {
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (user) {
+    const { data: profile } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot cancel or delete outbound dispatches.' };
+    }
+  }
+
   let supabase: any;
   try {
     supabase = createAdminClient();

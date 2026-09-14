@@ -33,6 +33,7 @@ import {
 import { getSales, getSalesSummaryStats, updateSalePrice, batchUpdateSalePrices, exportSalesCSV } from '@/actions/sales';
 import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SaleRecord } from '@/lib/types/database';
+import { useUser } from '../components/user-context';
 
 // ── Route badge config ────────────────────────────────────────
 const routeBadge: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -120,10 +121,19 @@ function InlinePriceEditor({
   currentPrice: number | null;
   onSaved: (newPrice: number) => void;
 }) {
+  const { isViewer } = useUser();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(currentPrice ?? ''));
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  if (isViewer) {
+    return (
+      <span className="text-sm font-mono text-slate-800">
+        {formatNaira(currentPrice)}
+      </span>
+    );
+  }
 
   function handleSave() {
     const num = parseFloat(value.replace(/[₦,\s]/g, ''));
@@ -320,6 +330,7 @@ function SaleRow({
   sale: SaleRecord;
   onPriceUpdated: () => void;
 }) {
+  const { isViewer } = useUser();
   const [expanded, setExpanded] = useState(false);
   const badge = routeBadge[sale.route] || routeBadge.B2C;
 
@@ -395,19 +406,21 @@ function SaleRow({
           <td colSpan={8} className="px-4 py-3">
             <div className="space-y-3">
               {/* Batch price editor per SKU */}
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-slate-700">Quick Batch Price Update by Model / SKU:</p>
-                {Object.values(skuGroups).map((group) => (
-                  <SkuBatchPriceEditor
-                    key={group.sku}
-                    transactionId={sale.transaction_id}
-                    sku={group.sku}
-                    modelName={group.model_name}
-                    items={group.items}
-                    onSaved={onPriceUpdated}
-                  />
-                ))}
-              </div>
+              {!isViewer && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-700">Quick Batch Price Update by Model / SKU:</p>
+                  {Object.values(skuGroups).map((group) => (
+                    <SkuBatchPriceEditor
+                      key={group.sku}
+                      transactionId={sale.transaction_id}
+                      sku={group.sku}
+                      modelName={group.model_name}
+                      items={group.items}
+                      onSaved={onPriceUpdated}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Items List Table */}
               <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">

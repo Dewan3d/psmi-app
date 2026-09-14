@@ -27,8 +27,9 @@ import {
   ArrowLeftRight,
   TrendingUp,
 } from 'lucide-react';
-import { signOut, getSession } from '@/actions/auth';
+import { signOut } from '@/actions/auth';
 import GlobalSearchBar from './components/global-search-bar';
+import { UserProvider, useUser } from './components/user-context';
 
 // ── Navigation Items ──────────────────────────────────────────
 const navItems = [
@@ -53,17 +54,6 @@ function AppLogo({ collapsed = false }: { collapsed?: boolean }) {
         <Zap className="w-5 h-5 text-white" />
       </div>
 
-      {/* Option B: Custom logo file — uncomment and replace Zap above
-      <Image
-        src="/logo.svg"
-        alt="Company Logo"
-        width={36}
-        height={36}
-        className="rounded-xl"
-        priority
-      />
-      */}
-
       {!collapsed && (
         <div className="flex flex-col">
           <span className="text-base font-bold text-slate-900 leading-tight tracking-tight">
@@ -78,32 +68,14 @@ function AppLogo({ collapsed = false }: { collapsed?: boolean }) {
   );
 }
 
-// ── Main Layout ───────────────────────────────────────────────
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// ── Main Shell (inside UserProvider) ──────────────────────────
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileName, setProfileName] = useState<string>('');
-  const [profileRole, setProfileRole] = useState<string>('');
+  const { profile, role, isViewer } = useUser();
 
-  // Fetch user profile on mount
-  useEffect(() => {
-    async function loadProfile() {
-      try {
-        const session = await getSession();
-        if (session?.profile) {
-          setProfileName(session.profile.full_name || 'User');
-          setProfileRole(session.profile.role || '');
-        }
-      } catch {
-        // Silently handle — middleware will redirect if not authed
-      }
-    }
-    loadProfile();
-  }, []);
+  const profileName = profile?.full_name || '';
+  const profileRole = role || '';
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -114,6 +86,14 @@ export default function DashboardLayout({
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   }
+
+  // Filter navigation: Viewers only see Dashboard, Inbound, Outbound, Sales, Inventory
+  const visibleNavItems = navItems.filter((item) => {
+    if (isViewer) {
+      return item.href !== '/settings' && item.href !== '/sku-swap';
+    }
+    return true;
+  });
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -147,7 +127,7 @@ export default function DashboardLayout({
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = isActive(item.href);
             return (
               <Link
@@ -186,7 +166,9 @@ export default function DashboardLayout({
                 {profileName || 'Loading...'}
               </p>
               <p className="text-xs text-slate-400 truncate">
-                {profileRole
+                {isViewer
+                  ? 'Viewer'
+                  : profileRole
                   ? profileRole.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
                   : ''}
               </p>
@@ -249,5 +231,18 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+  );
+}
+
+// ── Default Export Wrapped with UserProvider ──────────────────
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <UserProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </UserProvider>
   );
 }

@@ -256,6 +256,18 @@ export async function updateSalePrice(data: {
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot edit sale prices.' };
+    }
+  }
+
   if (data.new_price < 0) {
     return { error: 'Price cannot be negative' };
   }
@@ -280,6 +292,18 @@ export async function batchUpdateSalePrices(data: {
   unit_price: number;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot edit sale prices.' };
+    }
+  }
 
   if (data.unit_price < 0) {
     return { error: 'Price cannot be negative' };
