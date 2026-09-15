@@ -332,6 +332,7 @@ export async function exportSalesCSV(filters?: {
   from_date?: string;
   to_date?: string;
   route?: 'B2B' | 'B2C';
+  search?: string;
 }): Promise<{ csv: string; error: string | null }> {
   const result = await getSales({ ...filters, limit: 10000, offset: 0 });
 
@@ -339,7 +340,19 @@ export async function exportSalesCSV(filters?: {
     return { csv: '', error: result.error };
   }
 
-  const headers = ['Date', 'Tracking #', 'Route', 'Customer', 'Serial Number', 'SKU', 'Model', 'Sale Price (₦)', 'Cost Price (₦)', 'Profit (₦)'];
+  const headers = [
+    'Date',
+    'Tracking #',
+    'Route',
+    'Customer',
+    'Sales Manager',
+    'Serial Number',
+    'SKU',
+    'Model',
+    'Sale Price (₦)',
+    'Cost Price (₦)',
+    'Profit (₦)',
+  ];
   const rows: string[] = [headers.join(',')];
 
   for (const sale of result.data) {
@@ -351,6 +364,7 @@ export async function exportSalesCSV(filters?: {
         sale.tracking_number || '',
         sale.route,
         `"${(sale.customer_name || '').replace(/"/g, '""')}"`,
+        `"${(sale.sales_manager || '').replace(/"/g, '""')}"`,
         item.serial_number,
         item.sku,
         `"${item.model_name.replace(/"/g, '""')}"`,
@@ -362,4 +376,108 @@ export async function exportSalesCSV(filters?: {
   }
 
   return { csv: rows.join('\n'), error: null };
+}
+
+// ── Export sales data as formatted Excel (.xlsx) Table ────────
+export async function exportSalesXLSX(filters?: {
+  from_date?: string;
+  to_date?: string;
+  route?: 'B2B' | 'B2C';
+  search?: string;
+}): Promise<{ base64?: string; error: string | null }> {
+  const result = await getSales({ ...filters, limit: 10000, offset: 0 });
+
+  if (result.error) {
+    return { error: result.error };
+  }
+
+  const { Workbook } = await import('exceljs');
+  const workbook = new Workbook();
+  workbook.creator = 'PSMI Inventory & Sales';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Sales Data', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+
+  const tableRows: any[][] = [];
+
+  for (const sale of result.data) {
+    for (const item of sale.items) {
+      const salePrice = item.sale_price ?? 0;
+      const costPrice = item.cost_price ?? 0;
+      const profit = salePrice - costPrice;
+      tableRows.push([
+        new Date(sale.created_at).toLocaleDateString('en-GB'),
+        sale.tracking_number || '—',
+        sale.route,
+        sale.customer_name || '—',
+        sale.sales_manager || '—',
+        item.serial_number,
+        item.sku,
+        item.model_name,
+        salePrice,
+        costPrice,
+        profit,
+      ]);
+    }
+  }
+
+  const hasRows = tableRows.length > 0;
+  const rowsToInsert = hasRows
+    ? tableRows
+    : [['—', '—', '—', '—', '—', '—', '—', '—', 0, 0, 0]];
+
+  worksheet.addTable({
+    name: 'SalesTable',
+    ref: 'A1',
+    headerRow: true,
+    totalsRow: hasRows,
+    style: {
+      theme: 'TableStyleMedium9',
+      showRowStripes: true,
+    },
+    columns: [
+      { name: 'Date', filterButton: true, totalsRowLabel: 'Total' },
+      { name: 'Tracking #', filterButton: true },
+      { name: 'Route', filterButton: true },
+      { name: 'Customer', filterButton: true },
+      { name: 'Sales Manager', filterButton: true },
+      { name: 'Serial Number', filterButton: true },
+      { name: 'SKU', filterButton: true },
+      { name: 'Model', filterButton: true },
+      { name: 'Sale Price (₦)', filterButton: true, totalsRowFunction: 'sum' },
+      { name: 'Cost Price (₦)', filterButton: true, totalsRowFunction: 'sum' },
+      { name: 'Profit (₦)', filterButton: true, totalsRowFunction: 'sum' },
+    ],
+    rows: rowsToInsert,
+  });
+
+  // Number formatting for currency columns
+  const rowCount = rowsToInsert.length + 1 + (hasRows ? 1 : 0);
+  for (let r = 2; r <= rowCount; r++) {
+    worksheet.getCell(`I${r}`).numFmt = '₦#,##0.00';
+    worksheet.getCell(`J${r}`).numFmt = '₦#,##0.00';
+    worksheet.getCell(`K${r}`).numFmt = '₦#,##0.00';
+  }
+
+  // Adjust column widths
+  worksheet.columns = [
+    { width: 14 }, // Date
+    { width: 22 }, // Tracking #
+    { width: 10 }, // Route
+    { width: 28 }, // Customer
+    { width: 20 }, // Sales Manager
+    { width: 22 }, // Serial Number
+    { width: 26 }, // SKU
+    { width: 24 }, // Model
+    { width: 18 }, // Sale Price
+    { width: 18 }, // Cost Price
+    { width: 18 }, // Profit
+  ];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const base64 = Buffer.from(buffer).toString('base64');
+
+  return { base64, error: null };
 }

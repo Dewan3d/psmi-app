@@ -16,6 +16,7 @@ import {
   BarChart3,
   Search,
   Download,
+  FileSpreadsheet,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
@@ -30,7 +31,14 @@ import {
   Calendar,
   Package,
 } from 'lucide-react';
-import { getSales, getSalesSummaryStats, updateSalePrice, batchUpdateSalePrices, exportSalesCSV } from '@/actions/sales';
+import {
+  getSales,
+  getSalesSummaryStats,
+  updateSalePrice,
+  batchUpdateSalePrices,
+  exportSalesCSV,
+  exportSalesXLSX,
+} from '@/actions/sales';
 import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SaleRecord } from '@/lib/types/database';
 import { useUser } from '../components/user-context';
@@ -500,7 +508,7 @@ export default function SalesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [exporting, startExport] = useTransition();
+  const [exportingFormat, setExportingFormat] = useState<'csv' | 'xlsx' | null>(null);
   const ITEMS_PER_PAGE = 20;
 
   async function fetchData() {
@@ -542,21 +550,61 @@ export default function SalesPage() {
     return () => clearTimeout(timeout);
   }, [searchQuery]);
 
-  function handleExport() {
-    startExport(async () => {
+  async function handleExport(format: 'csv' | 'xlsx') {
+    if (exportingFormat) return;
+    setExportingFormat(format);
+    try {
       const range = getDateRange(datePreset);
       const route = routeFilter !== 'all' ? routeFilter : undefined;
-      const result = await exportSalesCSV({ from_date: range.from, to_date: range.to, route });
-      if (result.csv) {
-        const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `psmi-sales-${datePreset}-${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+      const search = searchQuery || undefined;
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      if (format === 'csv') {
+        const result = await exportSalesCSV({
+          from_date: range.from,
+          to_date: range.to,
+          route,
+          search,
+        });
+        if (result.csv) {
+          const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `psmi-sales-${datePreset}-${dateStr}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      } else {
+        const result = await exportSalesXLSX({
+          from_date: range.from,
+          to_date: range.to,
+          route,
+          search,
+        });
+        if (result.base64) {
+          const byteCharacters = atob(result.base64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `psmi-sales-${datePreset}-${dateStr}.xlsx`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
       }
-    });
+    } catch (err) {
+      console.error('Export error:', err);
+    } finally {
+      setExportingFormat(null);
+    }
   }
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE) || 1;
@@ -578,14 +626,34 @@ export default function SalesPage() {
             Track revenue, profit margins, and sale prices across all B2B and B2C transactions.
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exporting || sales.length === 0}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-50 transition-colors shadow-sm flex-shrink-0"
-        >
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          Export CSV
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={() => handleExport('csv')}
+            disabled={!!exportingFormat || sales.length === 0}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 transition-all shadow-xs flex-shrink-0 cursor-pointer"
+            title="Export sales data as CSV spreadsheet"
+          >
+            {exportingFormat === 'csv' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+            ) : (
+              <Download className="w-4 h-4 text-slate-500" />
+            )}
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExport('xlsx')}
+            disabled={!!exportingFormat || sales.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-sm shadow-emerald-200 flex-shrink-0 cursor-pointer"
+            title="Export sales data as formatted Excel Table (.xlsx)"
+          >
+            {exportingFormat === 'xlsx' ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4" />
+            )}
+            Export Excel (.xlsx)
+          </button>
+        </div>
       </div>
 
       {/* ── Filters Row ─────────────────────────────────────── */}
