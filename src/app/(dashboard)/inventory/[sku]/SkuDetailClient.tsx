@@ -379,7 +379,7 @@ export default function SkuDetailClient({
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {(Object.entries(statusBreakdown) as [UnitStatus, number][])
-                .filter(([status]) => status !== 'SOLD')
+                .filter(([status]) => status !== 'SOLD' && status !== 'IN_TRANSIT')
                 .map(([status, count]) => {
                   const cfg = statusConfig[status];
                   const IconComponent = cfg.icon;
@@ -486,7 +486,6 @@ export default function SkuDetailClient({
                 <option value="ALL">All Statuses ({units.length})</option>
                 <option value="IN_WAREHOUSE">In Warehouse ({statusBreakdown.IN_WAREHOUSE})</option>
                 <option value="RESERVED">Reserved ({statusBreakdown.RESERVED})</option>
-                <option value="IN_TRANSIT">In Transit ({statusBreakdown.IN_TRANSIT})</option>
                 <option value="IN_BRANCH">In Branch ({statusBreakdown.IN_BRANCH})</option>
                 <option value="SOLD">Sold ({statusBreakdown.SOLD})</option>
                 <option value="DAMAGED_REPAIR">Damaged ({statusBreakdown.DAMAGED_REPAIR})</option>

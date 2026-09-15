@@ -8,7 +8,7 @@
 // ============================================================
 'use client';
 
-import { useState, useEffect, useTransition, useRef } from 'react';
+import { useState, useEffect, useTransition, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ArrowDownLeft,
@@ -28,6 +28,7 @@ import {
   Camera,
   Scan,
   Trash2,
+  Search,
 } from 'lucide-react';
 import {
   listInboundTransactions,
@@ -735,9 +736,44 @@ export default function InboundPage() {
   const [showModal, setShowModal] = useState(false);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETE'>('ALL');
 
-  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE) || 1;
-  const paginatedTxns = transactions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  const pendingCount = useMemo(
+    () => transactions.filter((t) => t.pending_items > 0).length,
+    [transactions]
+  );
+  const completeCount = useMemo(
+    () => transactions.filter((t) => t.pending_items === 0).length,
+    [transactions]
+  );
+
+  const filteredTransactions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return transactions.filter((t) => {
+      // Status filter
+      if (statusFilter === 'PENDING' && t.pending_items === 0) return false;
+      if (statusFilter === 'COMPLETE' && t.pending_items > 0) return false;
+
+      if (!q) return true;
+
+      return (
+        (t.model_name && t.model_name.toLowerCase().includes(q)) ||
+        (t.sku && t.sku.toLowerCase().includes(q)) ||
+        (t.id && t.id.toLowerCase().includes(q)) ||
+        (t.tracking_number && t.tracking_number.toLowerCase().includes(q)) ||
+        (t.location_name && t.location_name.toLowerCase().includes(q)) ||
+        (t.user_name && t.user_name.toLowerCase().includes(q)) ||
+        (t.notes && t.notes.toLowerCase().includes(q))
+      );
+    });
+  }, [transactions, searchQuery, statusFilter]);
+
+  const totalPages = Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE) || 1;
+  const paginatedTxns = filteredTransactions.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   async function fetchTransactions() {
     setLoading(true);
@@ -869,6 +905,102 @@ export default function InboundPage() {
         )}
       </div>
 
+      {/* ── Search & Filter Controls ───────────────────────── */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.06)] border border-slate-100">
+        <div className="relative flex-1">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search receipt by Model, SKU, Tracking #, Location, Receipt ID..."
+            className="w-full pl-10 pr-9 py-2 text-sm bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-800 placeholder-slate-400"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200/60 transition-colors"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter Badges */}
+        <div className="flex items-center gap-1.5 self-start sm:self-center overflow-x-auto pb-1 sm:pb-0">
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFilter('ALL');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+              statusFilter === 'ALL'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                statusFilter === 'ALL' ? 'bg-slate-700 text-slate-200' : 'bg-slate-200/80 text-slate-500'
+              }`}
+            >
+              {transactions.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFilter('PENDING');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+              statusFilter === 'PENDING'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'bg-amber-50 text-amber-700 border border-amber-200/60 hover:bg-amber-100'
+            }`}
+          >
+            Pending Serials
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                statusFilter === 'PENDING' ? 'bg-amber-700 text-amber-100' : 'bg-amber-200/60 text-amber-800'
+              }`}
+            >
+              {pendingCount}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFilter('COMPLETE');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+              statusFilter === 'COMPLETE'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200/60 hover:bg-emerald-100'
+            }`}
+          >
+            Complete
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                statusFilter === 'COMPLETE' ? 'bg-emerald-700 text-emerald-100' : 'bg-emerald-200/60 text-emerald-800'
+              }`}
+            >
+              {completeCount}
+            </span>
+          </button>
+        </div>
+      </div>
+
       {/* ── Pending Serials Alert ───────────────────────────── */}
       {(() => {
         const totalPending = transactions.reduce((sum, t) => sum + t.pending_items, 0);
@@ -893,7 +1025,9 @@ export default function InboundPage() {
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-800">Inbound History</h2>
           <span className="text-xs text-slate-400 font-medium">
-            {transactions.length} receipt(s) recorded
+            {filteredTransactions.length === transactions.length
+              ? `${transactions.length} receipt(s) recorded`
+              : `Showing ${filteredTransactions.length} of ${transactions.length} receipt(s)`}
           </span>
         </div>
 
@@ -924,7 +1058,30 @@ export default function InboundPage() {
           </div>
         )}
 
-        {!loading && !error && transactions.length > 0 && (
+        {!loading && !error && transactions.length > 0 && filteredTransactions.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="p-4 bg-slate-50 rounded-2xl mb-3">
+              <Search className="w-8 h-8 text-slate-300" />
+            </div>
+            <p className="text-sm font-semibold text-slate-700">No matching receipts found</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-sm">
+              No inbound receipts match your search &quot;{searchQuery}&quot;
+              {statusFilter !== 'ALL' ? ` with status ${statusFilter.toLowerCase()}` : ''}.
+            </p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('ALL');
+                setCurrentPage(1);
+              }}
+              className="mt-4 px-3.5 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && filteredTransactions.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -1013,7 +1170,17 @@ export default function InboundPage() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center justify-end gap-3">
+                      <div className="flex items-center justify-end gap-2.5">
+                        {txn.pending_items > 0 && (
+                          <Link
+                            href={`/inbound/${txn.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 rounded-lg transition-colors shadow-xs"
+                            title="Assign serial numbers to this unit"
+                          >
+                            <Upload className="w-3 h-3" />
+                            Upload Serials
+                          </Link>
+                        )}
                         <Link
                           href={`/inbound/${txn.id}`}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
@@ -1042,13 +1209,13 @@ export default function InboundPage() {
               <span className="text-xs text-slate-500 font-medium">
                 Showing{' '}
                 <strong className="text-slate-800">
-                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, transactions.length)}
+                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredTransactions.length)}
                 </strong>{' '}
                 to{' '}
                 <strong className="text-slate-800">
-                  {Math.min(currentPage * ITEMS_PER_PAGE, transactions.length)}
+                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredTransactions.length)}
                 </strong>{' '}
-                of <strong className="text-slate-800">{transactions.length}</strong> receipts
+                of <strong className="text-slate-800">{filteredTransactions.length}</strong> receipts
               </span>
 
               <div className="flex items-center gap-1">

@@ -34,13 +34,6 @@ const STATUS_CONFIG: {
     textClass: 'text-amber-700',
   },
   {
-    key: 'IN_TRANSIT',
-    label: 'In Transit',
-    color: '#3b82f6',
-    bgClass: 'bg-blue-500',
-    textClass: 'text-blue-700',
-  },
-  {
     key: 'IN_BRANCH',
     label: 'In Branch',
     color: '#8b5cf6',

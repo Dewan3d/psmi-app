@@ -246,10 +246,7 @@ export default function InventoryCatalogueClient({
                       In Branch
                     </th>
                     <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                      In Transit
-                    </th>
-                    <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
-                      Reserved
+                      Pending Serials
                     </th>
                     <th className="text-center text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3">
                       Total Available
@@ -301,23 +298,12 @@ export default function InventoryCatalogueClient({
                         <td className="p-4 text-center">
                           <span
                             className={`text-sm font-semibold ${
-                              item.in_transit > 0
-                                ? 'text-blue-600'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {item.in_transit}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          <span
-                            className={`text-sm font-semibold ${
-                              item.reserved > 0
+                              item.pending_serial > 0
                                 ? 'text-amber-600'
                                 : 'text-slate-400'
                             }`}
                           >
-                            {item.reserved}
+                            {item.pending_serial}
                           </span>
                         </td>
                         <td className="p-4 text-center">
