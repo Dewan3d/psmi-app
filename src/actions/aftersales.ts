@@ -45,16 +45,96 @@ export async function createAftersalesReplacement(
     return { data: null, error: 'At least one item must be added for replacement' };
   }
 
-  // Validate replacement serials (if provided, must be in stock)
-  const replacementSerials = input.items
-    .map((i) => i.replacement_serial?.trim())
+  // 1. Fetch product information for all SKUs in input to know serialized vs non-serialized
+  const skus = [...new Set(input.items.map((i) => i.sku))];
+  const { data: productsData, error: prodError } = await supabase
+    .from('products')
+    .select('sku, is_serialized, model_name')
+    .in('sku', skus);
+
+  if (prodError) {
+    return { data: null, error: `Failed to fetch product details: ${prodError.message}` };
+  }
+
+  const prodMap = new Map((productsData || []).map((p) => [p.sku, p]));
+
+  // 2. Prepare items with serials and auto-allocate FIFO for non-serialized items
+  const processedItems: {
+    original_serial: string;
+    replacement_serial: string | null;
+    sku: string;
+    is_serialized: boolean;
+  }[] = [];
+
+  const usedSerials = new Set<string>();
+
+  for (const item of input.items) {
+    const prod = prodMap.get(item.sku);
+    const isSerialized = prod ? prod.is_serialized !== false : (item.original_serial !== 'N/A' && !item.original_serial.startsWith('NS-'));
+
+    let origSerial = item.original_serial?.trim() || '';
+    let repSerial = item.replacement_serial?.trim() || null;
+
+    if (!isSerialized) {
+      if (!origSerial || origSerial === 'N/A') {
+        origSerial = 'N/A';
+      }
+
+      // If replacement serial is empty, AUTO, or NON-SERIALIZED, auto-allocate from stock FIFO
+      if (!repSerial || repSerial === 'AUTO' || repSerial === 'NON-SERIALIZED') {
+        const { data: availUnits, error: availErr } = await supabase
+          .from('inventory_units')
+          .select('serial_number')
+          .eq('sku', item.sku)
+          .in('status', ['IN_WAREHOUSE', 'IN_BRANCH'])
+          .order('upload_date', { ascending: true });
+
+        if (availErr) {
+          return { data: null, error: `Error checking stock for ${prod?.model_name || item.sku}: ${availErr.message}` };
+        }
+
+        const foundUnit = (availUnits || []).find((u) => !usedSerials.has(u.serial_number));
+        if (!foundUnit) {
+          return {
+            data: null,
+            error: `Insufficient stock for replacement "${prod?.model_name || item.sku}". No available units in warehouse or branch.`,
+          };
+        }
+
+        repSerial = foundUnit.serial_number;
+      }
+    } else {
+      // Serialized product validation
+      if (!origSerial) {
+        return { data: null, error: `Original serial number is required for serialized unit (${prod?.model_name || item.sku})` };
+      }
+      if (!repSerial) {
+        return { data: null, error: `Replacement serial number is required for serialized unit (${prod?.model_name || item.sku})` };
+      }
+    }
+
+    if (repSerial) {
+      usedSerials.add(repSerial);
+    }
+
+    processedItems.push({
+      original_serial: origSerial,
+      replacement_serial: repSerial,
+      sku: item.sku,
+      is_serialized: isSerialized,
+    });
+  }
+
+  // 3. Validate that all serialized replacementSerials exist and are in stock
+  const allReplacementSerials = processedItems
+    .map((i) => i.replacement_serial)
     .filter((s): s is string => !!s);
 
-  if (replacementSerials.length > 0) {
+  if (allReplacementSerials.length > 0) {
     const { data: availableUnits, error: unitCheckError } = await supabase
       .from('inventory_units')
       .select('serial_number, status')
-      .in('serial_number', replacementSerials);
+      .in('serial_number', allReplacementSerials);
 
     if (unitCheckError) {
       return { data: null, error: `Failed to check replacement units: ${unitCheckError.message}` };
@@ -62,10 +142,10 @@ export async function createAftersalesReplacement(
 
     const availableMap = new Map((availableUnits || []).map((u) => [u.serial_number, u.status]));
 
-    for (const sn of replacementSerials) {
+    for (const sn of allReplacementSerials) {
       const status = availableMap.get(sn);
       if (!status) {
-        return { data: null, error: `Replacement serial ${sn} was not found in inventory.` };
+        return { data: null, error: `Replacement unit ${sn} was not found in inventory.` };
       }
       if (status !== 'IN_WAREHOUSE' && status !== 'IN_BRANCH') {
         return {
@@ -76,7 +156,7 @@ export async function createAftersalesReplacement(
     }
   }
 
-  // 1. Insert replacement record
+  // 4. Insert replacement record
   const { data: replacement, error: repError } = await supabase
     .from('aftersales_replacements')
     .insert({
@@ -93,11 +173,11 @@ export async function createAftersalesReplacement(
     return { data: null, error: repError?.message || 'Failed to record aftersales replacement' };
   }
 
-  // 2. Insert replacement items
-  const itemRows = input.items.map((i) => ({
+  // 5. Insert replacement items
+  const itemRows = processedItems.map((i) => ({
     replacement_id: replacement.id,
-    original_serial: i.original_serial.trim(),
-    replacement_serial: i.replacement_serial?.trim() || null,
+    original_serial: i.original_serial,
+    replacement_serial: i.replacement_serial,
     sku: i.sku.trim(),
   }));
 
@@ -109,31 +189,35 @@ export async function createAftersalesReplacement(
     console.error('Failed to create aftersales replacement items:', itemsError.message);
   }
 
-  // 3. Mark replacement units as SOLD (taken out of stock)
-  if (replacementSerials.length > 0) {
+  // 6. Mark replacement units as SOLD (taken out of stock)
+  if (allReplacementSerials.length > 0) {
     const { error: updateRepError } = await supabase
       .from('inventory_units')
       .update({ status: 'SOLD' })
-      .in('serial_number', replacementSerials);
+      .in('serial_number', allReplacementSerials);
 
     if (updateRepError) {
       console.error('Failed to update replacement unit status:', updateRepError.message);
     }
   }
 
-  // 4. If original serials exist in our system, mark them as DAMAGED_REPAIR
-  const originalSerials = input.items.map((i) => i.original_serial.trim());
-  if (originalSerials.length > 0) {
+  // 7. If original serials exist in our system (and are not 'N/A'), mark them as DAMAGED_REPAIR
+  const originalSerialsToUpdate = processedItems
+    .filter((i) => i.is_serialized && i.original_serial && i.original_serial !== 'N/A')
+    .map((i) => i.original_serial);
+
+  if (originalSerialsToUpdate.length > 0) {
     await supabase
       .from('inventory_units')
       .update({ status: 'DAMAGED_REPAIR' })
-      .in('serial_number', originalSerials);
+      .in('serial_number', originalSerialsToUpdate);
   }
 
   revalidatePath('/aftersales');
   revalidatePath('/stock');
   revalidatePath('/outbound');
   revalidatePath('/sales');
+  revalidatePath('/inventory');
 
   return { data: replacement, error: null };
 }

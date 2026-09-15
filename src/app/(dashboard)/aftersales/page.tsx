@@ -46,6 +46,7 @@ import {
 } from '@/lib/types/database';
 import { useUser } from '../components/user-context';
 import ConfirmModal from '../components/confirm-modal';
+import Portal from '../components/portal';
 
 // ── KPI Card Component ─────────────────────────────────────────
 function KpiCard({
@@ -114,11 +115,24 @@ function NewReplacementModal({
   const [manualSku, setManualSku] = useState('');
   const [manualOriginalSerial, setManualOriginalSerial] = useState('');
   const [manualReplacementSerial, setManualReplacementSerial] = useState('');
+  const [manualQuantity, setManualQuantity] = useState<number>(1);
 
   // UI state
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  const selectedManualProd = products.find((p) => p.sku === manualSku);
+  const isManualSerialized = selectedManualProd ? selectedManualProd.is_serialized !== false : true;
+
+  // Prevent background scrolling when modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   // Common pre-filled reasons
   const commonReasons = [
@@ -170,33 +184,57 @@ function NewReplacementModal({
   }
 
   function handleAddManualItem() {
-    if (!manualOriginalSerial.trim()) {
-      setError('Please enter the original serial number');
-      return;
-    }
     if (!manualSku) {
       setError('Please select the product model / SKU');
       return;
     }
-    if (!manualReplacementSerial.trim()) {
-      setError('Please enter the replacement unit serial number');
-      return;
-    }
 
     const prod = products.find((p) => p.sku === manualSku);
+    const isSerialized = prod ? prod.is_serialized !== false : true;
 
-    setItems((prev) => [
-      ...prev,
-      {
-        original_serial: manualOriginalSerial.trim(),
-        replacement_serial: manualReplacementSerial.trim(),
-        sku: manualSku,
-        model_name: prod?.model_name || manualSku,
-      },
-    ]);
+    if (isSerialized) {
+      if (!manualOriginalSerial.trim()) {
+        setError('Please enter the original serial number');
+        return;
+      }
+      if (!manualReplacementSerial.trim()) {
+        setError('Please enter the replacement unit serial number');
+        return;
+      }
 
-    setManualOriginalSerial('');
-    setManualReplacementSerial('');
+      setItems((prev) => [
+        ...prev,
+        {
+          original_serial: manualOriginalSerial.trim(),
+          replacement_serial: manualReplacementSerial.trim(),
+          sku: manualSku,
+          model_name: prod?.model_name || manualSku,
+        },
+      ]);
+
+      setManualOriginalSerial('');
+      setManualReplacementSerial('');
+    } else {
+      // Non-serialized item (e.g. B300S accessory)
+      const qty = Math.max(1, manualQuantity || 1);
+      const newItems: {
+        original_serial: string;
+        replacement_serial: string;
+        sku: string;
+        model_name?: string;
+      }[] = [];
+      for (let i = 0; i < qty; i++) {
+        newItems.push({
+          original_serial: 'N/A',
+          replacement_serial: '',
+          sku: manualSku,
+          model_name: prod?.model_name || manualSku,
+        });
+      }
+      setItems((prev) => [...prev, ...newItems]);
+      setManualQuantity(1);
+    }
+
     setError(null);
   }
 
@@ -219,10 +257,14 @@ function NewReplacementModal({
       return;
     }
 
-    // Check if any replacement serial is empty
-    const missingReplacement = items.some((i) => !i.replacement_serial?.trim());
+    // Check if any replacement serial is empty for SERIALIZED items
+    const missingReplacement = items.some((i) => {
+      const prod = products.find((p) => p.sku === i.sku);
+      const isSer = prod ? prod.is_serialized !== false : (i.original_serial !== 'N/A' && !i.original_serial.startsWith('NS-'));
+      return isSer && !i.replacement_serial?.trim();
+    });
     if (missingReplacement) {
-      setError('Please provide a replacement serial number for every unit being returned');
+      setError('Please provide a replacement serial number for every serialized unit being returned');
       return;
     }
 
@@ -238,8 +280,8 @@ function NewReplacementModal({
         notes: notes.trim() || null,
         user_id: profile?.id || '',
         items: items.map((i) => ({
-          original_serial: i.original_serial.trim(),
-          replacement_serial: i.replacement_serial.trim(),
+          original_serial: i.original_serial?.trim() || 'N/A',
+          replacement_serial: i.replacement_serial?.trim() || null,
           sku: i.sku,
         })),
       });
@@ -256,13 +298,14 @@ function NewReplacementModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-              <RotateCcw className="w-5 h-5" />
+    <Portal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-scale-in">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                <RotateCcw className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">
@@ -447,59 +490,89 @@ function NewReplacementModal({
 
             {items.length > 0 ? (
               <div className="space-y-2.5">
-                {items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-800">
-                        {item.model_name || item.sku}
-                        <span className="font-mono text-slate-400 font-normal ml-1">({item.sku})</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(idx)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                {items.map((item, idx) => {
+                  const prod = products.find((p) => p.sku === item.sku);
+                  const isItemSerialized = prod
+                    ? prod.is_serialized !== false
+                    : item.original_serial !== 'N/A' && !item.original_serial.startsWith('NS-');
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-[10px] text-slate-500 font-medium">Original Serial (Faulty)</span>
-                        <input
-                          type="text"
-                          value={item.original_serial}
-                          disabled={mode === 'linked'}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((it, i) => (i === idx ? { ...it, original_serial: val } : it))
-                            );
-                          }}
-                          className="w-full mt-0.5 px-3 py-1.5 font-mono text-xs border border-slate-200 rounded-lg bg-white disabled:bg-slate-100"
-                        />
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-2"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-800">
+                            {item.model_name || item.sku}
+                            <span className="font-mono text-slate-400 font-normal ml-1">({item.sku})</span>
+                          </span>
+                          {!isItemSerialized && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-medium">
+                              Non-serialized Accessory
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(idx)}
+                          className="text-slate-400 hover:text-rose-600 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-indigo-600 font-medium">New Replacement Serial</span>
-                        <input
-                          type="text"
-                          placeholder="Scan or type new unit SN..."
-                          value={item.replacement_serial}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setItems((prev) =>
-                              prev.map((it, i) => (i === idx ? { ...it, replacement_serial: val } : it))
-                            );
-                          }}
-                          className="w-full mt-0.5 px-3 py-1.5 font-mono text-xs border border-indigo-200 bg-indigo-50/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
+
+                      {isItemSerialized ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-medium">Original Serial (Faulty)</span>
+                            <input
+                              type="text"
+                              value={item.original_serial}
+                              disabled={mode === 'linked'}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItems((prev) =>
+                                  prev.map((it, i) => (i === idx ? { ...it, original_serial: val } : it))
+                                );
+                              }}
+                              className="w-full mt-0.5 px-3 py-1.5 font-mono text-xs border border-slate-200 rounded-lg bg-white disabled:bg-slate-100"
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-indigo-600 font-medium">New Replacement Serial</span>
+                            <input
+                              type="text"
+                              placeholder="Scan or type new unit SN..."
+                              value={item.replacement_serial}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setItems((prev) =>
+                                  prev.map((it, i) => (i === idx ? { ...it, replacement_serial: val } : it))
+                                );
+                              }}
+                              className="w-full mt-0.5 px-3 py-1.5 font-mono text-xs border border-indigo-200 bg-indigo-50/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-white/70 p-2.5 rounded-lg border border-slate-200/80">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-medium block">Original Unit</span>
+                            <span className="text-xs text-slate-600 font-mono italic">No serial number (Accessory)</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-indigo-600 font-medium block">Replacement Unit</span>
+                            <span className="text-xs text-emerald-700 font-medium flex items-center gap-1 mt-0.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                              Auto-allocated from inventory (FIFO)
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="p-4 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400">
@@ -511,42 +584,96 @@ function NewReplacementModal({
 
             {/* Add item input row for manual mode (or additional item in linked mode) */}
             <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2.5">
-              <span className="text-xs font-semibold text-slate-700">Add Unit to Replace:</span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <select
-                  value={manualSku}
-                  onChange={(e) => setManualSku(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-                >
-                  <option value="">Select Model / SKU...</option>
-                  {products.map((p) => (
-                    <option key={p.sku} value={p.sku}>
-                      {p.model_name} ({p.sku})
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  type="text"
-                  placeholder="Original Serial #"
-                  value={manualOriginalSerial}
-                  onChange={(e) => setManualOriginalSerial(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                />
-
-                <input
-                  type="text"
-                  placeholder="New Serial #"
-                  value={manualReplacementSerial}
-                  onChange={(e) => setManualReplacementSerial(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
-                />
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700">Add Unit to Replace:</span>
+                {manualSku && !isManualSerialized && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold flex items-center gap-1">
+                    <Package className="w-3 h-3 text-amber-600" /> Non-serialized Accessory (No Serial # Required)
+                  </span>
+                )}
               </div>
+
+              {isManualSerialized ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select
+                    value={manualSku}
+                    onChange={(e) => setManualSku(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="">Select Model / SKU...</option>
+                    {products.map((p) => (
+                      <option key={p.sku} value={p.sku}>
+                        {p.model_name} ({p.sku}) {p.is_serialized === false ? '• [Non-serialized]' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="Original Serial #"
+                    value={manualOriginalSerial}
+                    onChange={(e) => setManualOriginalSerial(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="New Serial #"
+                    value={manualReplacementSerial}
+                    onChange={(e) => setManualReplacementSerial(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="sm:col-span-2">
+                      <select
+                        value={manualSku}
+                        onChange={(e) => setManualSku(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                      >
+                        <option value="">Select Model / SKU...</option>
+                        {products.map((p) => (
+                          <option key={p.sku} value={p.sku}>
+                            {p.model_name} ({p.sku}) {p.is_serialized === false ? '• [Non-serialized]' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs text-slate-500 whitespace-nowrap">Quantity:</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={manualQuantity}
+                        onChange={(e) => setManualQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg text-center font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-lg text-xs text-amber-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-[11px] text-amber-900">
+                          {selectedManualProd?.model_name || 'Item'} is an accessory (No serial number required)
+                        </p>
+                        <p className="text-[10px] text-amber-700">
+                          A replacement unit will be automatically allocated from available inventory via FIFO.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="button"
                 onClick={handleAddManualItem}
-                className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3 h-3" /> Add This Item
               </button>
@@ -649,12 +776,28 @@ function NewReplacementModal({
                 <strong className="text-slate-900">Units ({items.length}):</strong>
               </p>
               <ul className="space-y-1 pl-2">
-                {items.map((it, idx) => (
-                  <li key={idx} className="font-mono text-[11px] text-slate-600">
-                    {it.original_serial} ➔ <strong className="text-indigo-600">{it.replacement_serial}</strong>{' '}
-                    ({it.sku})
-                  </li>
-                ))}
+                {items.map((it, idx) => {
+                  const prod = products.find((p) => p.sku === it.sku);
+                  const isSer = prod
+                    ? prod.is_serialized !== false
+                    : it.original_serial !== 'N/A' && !it.original_serial.startsWith('NS-');
+
+                  return (
+                    <li key={idx} className="text-[11px] text-slate-600">
+                      {isSer ? (
+                        <span className="font-mono">
+                          {it.original_serial} ➔ <strong className="text-indigo-600">{it.replacement_serial}</strong>
+                        </span>
+                      ) : (
+                        <span>
+                          Non-serialized item ➔{' '}
+                          <strong className="text-emerald-700">Auto-allocated from stock</strong>
+                        </span>
+                      )}{' '}
+                      ({it.sku})
+                    </li>
+                  );
+                })}
               </ul>
             </div>
             <p className="text-[11px] text-slate-500">
@@ -665,6 +808,7 @@ function NewReplacementModal({
         confirmText="Yes, Issue Replacement"
       />
     </div>
+    </Portal>
   );
 }
 
@@ -930,19 +1074,50 @@ export default function AftersalesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {rep.items.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-3 py-2 font-medium text-slate-800">
-                              {item.product?.model_name || item.sku} ({item.sku})
-                            </td>
-                            <td className="px-3 py-2 font-mono text-slate-600">
-                              {item.original_serial}
-                            </td>
-                            <td className="px-3 py-2 font-mono font-semibold text-indigo-700">
-                              {item.replacement_serial || 'Pending assignment'}
-                            </td>
-                          </tr>
-                        ))}
+                        {rep.items.map((item) => {
+                          const isSerialized = item.product
+                            ? item.product.is_serialized !== false
+                            : item.original_serial !== 'N/A' && !item.original_serial.startsWith('NS-');
+
+                          return (
+                            <tr key={item.id}>
+                              <td className="px-3 py-2 font-medium text-slate-800">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{item.product?.model_name || item.sku}</span>
+                                  <span className="text-slate-400 font-mono text-[11px]">({item.sku})</span>
+                                  {!isSerialized && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-medium border border-amber-200">
+                                      Accessory
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-slate-600">
+                                {isSerialized ? (
+                                  <span className="font-mono">{item.original_serial}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic text-[11px]">Non-serialized (N/A)</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-indigo-700">
+                                {item.replacement_serial ? (
+                                  item.replacement_serial.startsWith('NS-') ? (
+                                    <span className="flex items-center gap-1 text-slate-700">
+                                      <span className="font-mono text-[11px]">{item.replacement_serial}</span>
+                                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-sans font-medium border border-emerald-200">
+                                        Stock unit
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono">{item.replacement_serial}</span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-400 italic font-normal text-[11px]">Pending assignment</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

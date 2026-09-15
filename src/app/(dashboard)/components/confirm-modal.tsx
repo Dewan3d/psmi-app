@@ -9,6 +9,7 @@
 
 import { ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
+import Portal from './portal';
 
 export interface ConfirmModalProps {
   isOpen: boolean;
@@ -38,8 +39,9 @@ export default function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden transform transition-all">
+    <Portal>
+      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+        <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden transform transition-all">
         <div className="p-6">
           <div className="flex items-start gap-4">
             <div
@@ -100,5 +102,6 @@ export default function ConfirmModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
