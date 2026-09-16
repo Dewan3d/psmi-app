@@ -396,7 +396,7 @@ function NewOutboundModal({
     load();
   }, []);
 
-  // Fetch location stock whenever fromLocationId changes
+  // Fetch location stock whenever fromLocationId changes or step transitions
   useEffect(() => {
     async function loadStock() {
       if (!fromLocationId) {
@@ -409,7 +409,7 @@ function NewOutboundModal({
       if (res.pending) setLocationPending(res.pending);
     }
     loadStock();
-  }, [fromLocationId]);
+  }, [fromLocationId, step]);
 
   // Load FIFO suggestions for serialized items
   useEffect(() => {
