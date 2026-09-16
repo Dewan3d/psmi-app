@@ -17,6 +17,8 @@ export interface ComboboxOption {
   sublabel?: string;
   badge?: string;
   badgeColor?: string;
+  extra?: string;
+  extraColor?: string;
 }
 
 interface ComboboxSelectProps {
@@ -78,7 +80,8 @@ export default function ComboboxSelect({
     return (
       opt.label.toLowerCase().includes(q) ||
       (opt.sublabel && opt.sublabel.toLowerCase().includes(q)) ||
-      (opt.badge && opt.badge.toLowerCase().includes(q))
+      (opt.badge && opt.badge.toLowerCase().includes(q)) ||
+      (opt.extra && opt.extra.toLowerCase().includes(q))
     );
   });
 
@@ -97,7 +100,7 @@ export default function ComboboxSelect({
   return (
     <div className={`relative ${className}`} ref={containerRef}>
       {label && (
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+        <label className="block text-xs font-semibold text-slate-700 mb-1.5">
           {label}
         </label>
       )}
@@ -115,7 +118,7 @@ export default function ComboboxSelect({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
           {selectedOption ? (
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap">
               <span className="font-semibold text-slate-800 truncate">
                 {selectedOption.label}
               </span>
@@ -131,6 +134,15 @@ export default function ComboboxSelect({
                   }`}
                 >
                   {selectedOption.badge}
+                </span>
+              )}
+              {selectedOption.extra && (
+                <span
+                  className={`text-xs font-medium px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                    selectedOption.extraColor || 'bg-slate-50 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  {selectedOption.extra}
                 </span>
               )}
             </div>
@@ -159,18 +171,18 @@ export default function ComboboxSelect({
 
       {/* Floating Dropdown Popover */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-[70] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fade-in">
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-[80] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden animate-fade-in">
           {/* Live Search Input inside Popover */}
-          <div className="p-2.5 border-b border-slate-100 bg-slate-50/50">
+          <div className="p-3 border-b border-slate-100 bg-slate-50/70">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="w-full pl-9 pr-7 py-2 text-xs bg-white border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
               />
               {searchQuery && (
                 <button
@@ -185,7 +197,7 @@ export default function ComboboxSelect({
           </div>
 
           {/* Filtered Options List */}
-          <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
             {filteredOptions.length > 0 ? (
               filteredOptions.map((opt) => {
                 const isSelected = opt.value === value;
@@ -194,14 +206,14 @@ export default function ComboboxSelect({
                     key={opt.value}
                     type="button"
                     onClick={() => handleSelect(opt.value)}
-                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 transition-colors cursor-pointer ${
+                    className={`w-full text-left px-4 py-3 flex items-center justify-between gap-3 transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-indigo-50/80 text-indigo-900 font-semibold'
                         : 'hover:bg-slate-50 text-slate-700'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-sm font-medium text-slate-800 truncate">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="text-sm font-medium text-slate-900 truncate">
                         {opt.label}
                       </span>
                       {opt.sublabel && (
@@ -219,14 +231,25 @@ export default function ComboboxSelect({
                         </span>
                       )}
                     </div>
-                    {isSelected && (
-                      <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                    )}
+                    <div className="flex items-center gap-2.5 flex-shrink-0">
+                      {opt.extra && (
+                        <span
+                          className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
+                            opt.extraColor || 'bg-slate-50 text-slate-600 border-slate-200'
+                          }`}
+                        >
+                          {opt.extra}
+                        </span>
+                      )}
+                      {isSelected && (
+                        <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                      )}
+                    </div>
                   </button>
                 );
               })
             ) : (
-              <div className="py-6 text-center text-xs text-slate-400">
+              <div className="py-8 text-center text-xs text-slate-400">
                 {emptyText}
               </div>
             )}

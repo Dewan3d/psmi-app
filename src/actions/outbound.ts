@@ -245,18 +245,28 @@ export async function getFifoSerialsForQuantity(data: {
   sku: string;
   location_id: string;
   quantity: number;
+  exclude_serials?: string[];
 }): Promise<{ serial_numbers: string[]; error: string | null }> {
   const supabase = await createClient();
 
   // Find oldest available units (FIFO)
-  const { data: units, error } = await supabase
+  let query = supabase
     .from('inventory_units')
     .select('serial_number')
     .eq('sku', data.sku)
     .eq('location_id', data.location_id)
     .in('status', ['IN_WAREHOUSE', 'IN_BRANCH'])
-    .order('upload_date', { ascending: true })
-    .limit(data.quantity);
+    .order('upload_date', { ascending: true });
+
+  if (data.exclude_serials && data.exclude_serials.length > 0) {
+    const cleanExcludes = data.exclude_serials.filter(Boolean);
+    if (cleanExcludes.length > 0) {
+      // Exclude already allocated units
+      query = query.not('serial_number', 'in', `(${cleanExcludes.map((s) => `"${s}"`).join(',')})`);
+    }
+  }
+
+  const { data: units, error } = await query.limit(data.quantity);
 
   if (error) {
     return { serial_numbers: [], error: error.message };

@@ -259,3 +259,36 @@ export async function getFifoQueue(
 
   return { data: data || [], error: null };
 }
+
+// ── Get in-stock and pending unit counts for a location ────────
+export async function getLocationStockCounts(
+  locationId: string
+): Promise<{
+  data: Record<string, number>;
+  pending: Record<string, number>;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('inventory_units')
+    .select('sku, status')
+    .eq('location_id', locationId)
+    .in('status', ['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL']);
+
+  if (error) {
+    return { data: {}, pending: {}, error: error.message };
+  }
+
+  const counts: Record<string, number> = {};
+  const pending: Record<string, number> = {};
+  for (const row of data || []) {
+    if (row.status === 'PENDING_SERIAL') {
+      pending[row.sku] = (pending[row.sku] || 0) + 1;
+    } else {
+      counts[row.sku] = (counts[row.sku] || 0) + 1;
+    }
+  }
+
+  return { data: counts, pending, error: null };
+}

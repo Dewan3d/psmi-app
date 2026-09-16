@@ -280,22 +280,20 @@ function SkuBatchPriceEditor({
           <button
             type="button"
             onClick={() => setMode('total')}
-            className={`px-2.5 py-1 transition-colors cursor-pointer ${
-              mode === 'total'
+            className={`px-2.5 py-1 transition-colors cursor-pointer ${mode === 'total'
                 ? 'bg-indigo-600 text-white font-semibold'
                 : 'text-slate-600 hover:bg-slate-50'
-            }`}
+              }`}
           >
             Total Price
           </button>
           <button
             type="button"
             onClick={() => setMode('unit')}
-            className={`px-2.5 py-1 transition-colors cursor-pointer ${
-              mode === 'unit'
+            className={`px-2.5 py-1 transition-colors cursor-pointer ${mode === 'unit'
                 ? 'bg-indigo-600 text-white font-semibold'
                 : 'text-slate-600 hover:bg-slate-50'
-            }`}
+              }`}
           >
             Unit Price
           </button>
@@ -664,11 +662,10 @@ export default function SalesPage() {
             <button
               key={p.key}
               onClick={() => { setDatePreset(p.key); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                datePreset === p.key
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${datePreset === p.key
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-              }`}
+                }`}
             >
               {p.label}
             </button>
@@ -681,11 +678,10 @@ export default function SalesPage() {
             <button
               key={r}
               onClick={() => { setRouteFilter(r); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                routeFilter === r
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${routeFilter === r
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-              }`}
+                }`}
             >
               {r === 'all' ? 'All Routes' : r}
             </button>
