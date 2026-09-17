@@ -270,23 +270,45 @@ export async function getLocationStockCounts(
 }> {
   const supabase = await createClient();
 
+  // Query aggregated view to avoid PostgREST row limits (e.g. 1000 rows) on large inventories
   const { data, error } = await supabase
-    .from('inventory_units')
-    .select('sku, status')
+    .from('location_sku_stock_summary')
+    .select('sku, status, count')
     .eq('location_id', locationId)
     .in('status', ['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL']);
 
   if (error) {
-    return { data: {}, pending: {}, error: error.message };
+    // Fallback if view is not accessible
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('inventory_units')
+      .select('sku, status')
+      .eq('location_id', locationId)
+      .in('status', ['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL']);
+
+    if (fallbackError) {
+      return { data: {}, pending: {}, error: error.message };
+    }
+
+    const counts: Record<string, number> = {};
+    const pending: Record<string, number> = {};
+    for (const row of fallbackData || []) {
+      if (row.status === 'PENDING_SERIAL') {
+        pending[row.sku] = (pending[row.sku] || 0) + 1;
+      } else {
+        counts[row.sku] = (counts[row.sku] || 0) + 1;
+      }
+    }
+    return { data: counts, pending, error: null };
   }
 
   const counts: Record<string, number> = {};
   const pending: Record<string, number> = {};
   for (const row of data || []) {
+    const qty = Number(row.count) || 0;
     if (row.status === 'PENDING_SERIAL') {
-      pending[row.sku] = (pending[row.sku] || 0) + 1;
+      pending[row.sku] = (pending[row.sku] || 0) + qty;
     } else {
-      counts[row.sku] = (counts[row.sku] || 0) + 1;
+      counts[row.sku] = (counts[row.sku] || 0) + qty;
     }
   }
 

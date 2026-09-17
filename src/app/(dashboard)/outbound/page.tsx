@@ -778,7 +778,9 @@ function NewOutboundModal({
           {step === 2 && (() => {
             const selectedProd = products.find((p) => p.sku === sku);
             const isSerialized = selectedProd ? selectedProd.is_serialized !== false : true;
-            const availableStock = sku ? (locationStock[sku] ?? 0) : 0;
+            const availableStock = sku
+              ? Math.max(locationStock[sku] ?? 0, isSerialized ? fifoSuggestions.length : 0)
+              : 0;
             const pendingStock = sku ? (locationPending[sku] ?? 0) : 0;
             const alreadySelectedForThisSku = selectedSerials.filter(
               (s) => (serialSkuMap[s] || (s.startsWith('NS-') ? s.split('-')[1] : '')) === sku
@@ -923,8 +925,16 @@ function NewOutboundModal({
                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                           <div>
-                            <p className="font-semibold">No units available to dispatch from this location</p>
-                            {pendingStock > 0 ? (
+                            <p className="font-semibold">
+                              {alreadySelectedForThisSku > 0
+                                ? 'All available units have been added'
+                                : 'No units available to dispatch from this location'}
+                            </p>
+                            {alreadySelectedForThisSku > 0 ? (
+                              <p className="text-amber-700 mt-0.5">
+                                All {alreadySelectedForThisSku} unit(s) currently in stock at {fromLoc?.name || 'this location'} have been added to this dispatch order.
+                              </p>
+                            ) : pendingStock > 0 ? (
                               <p className="text-amber-700 mt-0.5">
                                 There are <strong>{pendingStock} unit(s)</strong> of this product awaiting serial assignment in Inbound Operations. Complete serial assignment in Inbound to make them available.
                               </p>
