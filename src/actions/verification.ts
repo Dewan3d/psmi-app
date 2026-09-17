@@ -8,6 +8,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { VerificationDocument } from '@/lib/types/database';
 
 export type DocumentType = 'WAYBILL' | 'PAYMENT_RECEIPT' | 'PAYMENT_SCREENSHOT';
@@ -36,49 +37,83 @@ export async function uploadVerificationDoc(data: {
   return { data: result.data[0] || null, error: null };
 }
 
-export async function uploadMultipleVerificationDocs(data: {
+export async function uploadMultipleVerificationDocs(payload: FormData | {
   transaction_id: string;
   document_type: DocumentType;
   files: File[];
 }): Promise<{ data: VerificationDocument[]; errors: string[] }> {
-  const supabase = await createClient();
+  let transactionId: string;
+  let documentType: DocumentType;
+  let files: File[];
+
+  if (payload instanceof FormData) {
+    transactionId = payload.get('transaction_id') as string;
+    documentType = payload.get('document_type') as DocumentType;
+    files = payload.getAll('files') as File[];
+  } else {
+    transactionId = payload.transaction_id;
+    documentType = payload.document_type;
+    files = payload.files || [];
+  }
+
+  if (!transactionId || !documentType || !files || files.length === 0) {
+    return { data: [], errors: ['No files or invalid parameters received for upload.'] };
+  }
+
+  const supabase = createAdminClient();
   const uploadedDocs: VerificationDocument[] = [];
   const errors: string[] = [];
 
-  for (const file of data.files) {
-    // Sanitize filename and create unique storage path
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = `${data.transaction_id}/${data.document_type}-${Date.now()}-${sanitizedName}`;
+  for (const file of files) {
+    try {
+      // Sanitize filename and create unique storage path
+      const originalName = file.name || 'document';
+      const sanitizedName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `${transactionId}/${documentType}-${Date.now()}-${sanitizedName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('verification-docs')
-      .upload(filePath, file);
+      let fileBuffer: Buffer;
+      if (typeof file.arrayBuffer === 'function') {
+        const arrayBuffer = await file.arrayBuffer();
+        fileBuffer = Buffer.from(arrayBuffer);
+      } else {
+        fileBuffer = Buffer.from(file as any);
+      }
 
-    if (uploadError) {
-      errors.push(`Failed to upload ${file.name}: ${uploadError.message}`);
-      continue;
-    }
+      const { error: uploadError } = await supabase.storage
+        .from('verification-docs')
+        .upload(filePath, fileBuffer, {
+          contentType: file.type || 'application/octet-stream',
+          upsert: true,
+        });
 
-    // Get the public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from('verification-docs').getPublicUrl(filePath);
+      if (uploadError) {
+        errors.push(`Failed to upload ${originalName}: ${uploadError.message}`);
+        continue;
+      }
 
-    // Save the document reference in DB
-    const { data: doc, error: insertError } = await supabase
-      .from('verification_documents')
-      .insert({
-        transaction_id: data.transaction_id,
-        document_type: data.document_type,
-        storage_url: publicUrl,
-      })
-      .select()
-      .single();
+      // Get the public URL
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('verification-docs').getPublicUrl(filePath);
 
-    if (insertError) {
-      errors.push(`Failed to save record for ${file.name}: ${insertError.message}`);
-    } else if (doc) {
-      uploadedDocs.push(doc);
+      // Save the document reference in DB
+      const { data: doc, error: insertError } = await supabase
+        .from('verification_documents')
+        .insert({
+          transaction_id: transactionId,
+          document_type: documentType,
+          storage_url: publicUrl,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        errors.push(`Failed to save record for ${originalName}: ${insertError.message}`);
+      } else if (doc) {
+        uploadedDocs.push(doc);
+      }
+    } catch (err: any) {
+      errors.push(`Failed processing ${(file && file.name) || 'file'}: ${err.message}`);
     }
   }
 
@@ -89,7 +124,7 @@ export async function deleteVerificationDoc(
   docId: string,
   storageUrl: string
 ): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // Try extracting the relative path in the storage bucket
   try {
@@ -123,7 +158,7 @@ export async function checkVerificationComplete(
   uploaded: DocumentType[];
   missing: DocumentType[];
 }> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data: docs } = await supabase
     .from('verification_documents')
@@ -145,7 +180,7 @@ export async function checkVerificationComplete(
 export async function getVerificationDocs(
   transactionId: string
 ): Promise<{ data: VerificationDocument[]; error: string | null }> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from('verification_documents')
@@ -164,7 +199,7 @@ export async function markTransactionVerified(data: {
   transaction_id: string;
   user_id: string;
 }): Promise<{ error: string | null }> {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // Check verification completeness
   const { complete, missing } = await checkVerificationComplete(

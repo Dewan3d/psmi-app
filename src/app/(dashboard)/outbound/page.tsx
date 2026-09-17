@@ -48,6 +48,7 @@ import {
   checkVerificationComplete,
 } from '@/actions/verification';
 import { listProducts } from '@/actions/products';
+import { listLocations } from '@/actions/locations';
 import { getFifoQueue, getLocationStockCounts } from '@/actions/inventory';
 import { formatNaira } from '@/lib/utils/currency';
 import { VerificationDocument } from '@/lib/types/database';
@@ -151,37 +152,51 @@ function VerificationPanel({
     setUploading((prev) => ({ ...prev, [docType]: true }));
     setError(null);
 
-    const result = await uploadMultipleVerificationDocs({
-      transaction_id: transactionId,
-      document_type: docType,
-      files: fileArray,
-    });
+    try {
+      const formData = new FormData();
+      formData.append('transaction_id', transactionId);
+      formData.append('document_type', docType);
+      fileArray.forEach((file) => {
+        formData.append('files', file);
+      });
 
-    if (result.errors.length > 0) {
-      setError(result.errors.join('; '));
+      const result = await uploadMultipleVerificationDocs(formData);
+
+      if (result.errors && result.errors.length > 0) {
+        setError(result.errors.join('; '));
+      }
+      if (result.data && result.data.length > 0) {
+        setDocs((prev) => ({
+          ...prev,
+          [docType]: [...(prev[docType] || []), ...result.data],
+        }));
+      }
+    } catch (err: any) {
+      console.error('Failed uploading verification doc:', err);
+      setError(err?.message || 'Failed to upload document. Please check file and network connection.');
+    } finally {
+      setUploading((prev) => ({ ...prev, [docType]: false }));
     }
-    if (result.data.length > 0) {
-      setDocs((prev) => ({
-        ...prev,
-        [docType]: [...(prev[docType] || []), ...result.data],
-      }));
-    }
-    setUploading((prev) => ({ ...prev, [docType]: false }));
   }
 
   async function handleDelete(doc: VerificationDocument) {
     setDeletingId(doc.id);
     setError(null);
-    const result = await deleteVerificationDoc(doc.id, doc.storage_url);
-    if (result.error) {
-      setError(result.error);
-    } else {
-      setDocs((prev) => ({
-        ...prev,
-        [doc.document_type]: (prev[doc.document_type] || []).filter((d) => d.id !== doc.id),
-      }));
+    try {
+      const result = await deleteVerificationDoc(doc.id, doc.storage_url);
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setDocs((prev) => ({
+          ...prev,
+          [doc.document_type]: (prev[doc.document_type] || []).filter((d) => d.id !== doc.id),
+        }));
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to remove document.');
+    } finally {
+      setDeletingId(null);
     }
-    setDeletingId(null);
   }
 
   function handleVerify() {
@@ -389,8 +404,13 @@ function NewOutboundModal({
       const { data: prods } = await listProducts();
       setProducts((prods || []) as any);
       const supabase = createClient();
-      const { data: locs } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false });
-      setLocations(locs || []);
+      const locRes = await listLocations();
+      if (locRes.data && locRes.data.length > 0) {
+        setLocations(locRes.data);
+      } else {
+        const { data: locs } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false });
+        setLocations(locs || []);
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setUserId(user.id);
     }

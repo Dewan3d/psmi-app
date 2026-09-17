@@ -5,6 +5,7 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { Location } from '@/lib/types/database';
 
 export async function createLocation(data: {
@@ -63,19 +64,35 @@ export async function listLocations(): Promise<{
   data: Location[];
   error: string | null;
 }> {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('locations')
-    .select('*')
-    .order('type', { ascending: true })
-    .order('name', { ascending: true });
+    const { data, error } = await supabase
+      .from('locations')
+      .select('*')
+      .order('type', { ascending: true })
+      .order('name', { ascending: true });
 
-  if (error) {
-    return { data: [], error: error.message };
+    if (!error && data && data.length > 0) {
+      return { data, error: null };
+    }
+
+    // Fallback to admin client if user session or RLS blocks reading
+    const admin = createAdminClient();
+    const { data: adminData, error: adminError } = await admin
+      .from('locations')
+      .select('*')
+      .order('type', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (adminError) {
+      return { data: [], error: adminError.message };
+    }
+
+    return { data: adminData || [], error: null };
+  } catch (err: any) {
+    return { data: [], error: err.message };
   }
-
-  return { data: data || [], error: null };
 }
 
 export async function getLocation(

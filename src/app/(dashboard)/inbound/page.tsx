@@ -39,6 +39,7 @@ import {
   deleteInboundTransaction,
 } from '@/actions/inbound';
 import { listProducts, listModelGroups } from '@/actions/products';
+import { listLocations } from '@/actions/locations';
 import { createClient } from '@/lib/supabase/client';
 
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
@@ -138,10 +139,16 @@ function NewInboundModal({
       const { data: groups } = await listModelGroups();
       setModelGroups((groups || []) as any);
 
-      // Load locations
       const supabase = createClient();
-      const { data: locs } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false });
-      setLocations(locs || []);
+
+      // Load locations
+      const locRes = await listLocations();
+      if (locRes.data && locRes.data.length > 0) {
+        setLocations(locRes.data);
+      } else {
+        const { data: locs } = await supabase.from('locations').select('id, name, type').order('type', { ascending: false });
+        setLocations(locs || []);
+      }
 
       // Get user id
       const { data: { user } } = await supabase.auth.getUser();
