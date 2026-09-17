@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useTransition, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowDownLeft,
   PackagePlus,
@@ -93,7 +94,7 @@ function NewInboundModal({
   onSuccess,
 }: {
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (newTxnId?: string, pendingCount?: number, meta?: { modelName?: string; qty?: number }) => void;
 }) {
   const [mode, setMode] = useState<'quantity' | 'model-group' | 'serials'>('quantity');
   const [inputSubTab, setInputSubTab] = useState<'manual' | 'file' | 'scan'>('manual');
@@ -116,6 +117,7 @@ function NewInboundModal({
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scannerInput, setScannerInput] = useState('');
+  const [isLaserFocused, setIsLaserFocused] = useState(false);
   const laserInputRef = useRef<HTMLInputElement>(null);
 
   // Determine if selected SKU is serialized
@@ -302,8 +304,15 @@ function NewInboundModal({
 
   function handleConfirmedSubmit() {
     startTransition(async () => {
+      let createdTxnId: string | undefined;
+      let pendingCount = 0;
+      let modelNameStr = selectedProd?.model_name || sku;
+      let totalQty = 0;
+
       if (mode === 'model-group') {
         const qty = parseInt(quantity, 10);
+        totalQty = qty;
+        modelNameStr = selectedModelGroup;
         const result = await createInboundByModelGroup({
           model_group: selectedModelGroup,
           location_id: locationId,
@@ -312,8 +321,11 @@ function NewInboundModal({
           notes: notes || undefined,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
+        createdTxnId = result.data?.id;
+        pendingCount = result.pending_count || 0;
       } else if (mode === 'quantity') {
         const qty = parseInt(quantity, 10);
+        totalQty = qty;
         const result = await createInboundByQuantity({
           sku,
           location_id: locationId,
@@ -322,8 +334,11 @@ function NewInboundModal({
           notes: notes || undefined,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
+        createdTxnId = result.data?.id;
+        pendingCount = result.pending_count || 0;
       } else {
         const serials = serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        totalQty = serials.length;
         const result = await createInboundTransaction({
           sku,
           location_id: locationId,
@@ -332,13 +347,14 @@ function NewInboundModal({
           notes: notes || undefined,
         });
         if (result.error) { setError(result.error); setShowConfirm(false); return; }
+        createdTxnId = result.data?.id;
       }
       // Make sure camera is stopped if active
       if (cameraActive) {
         await stopCamera();
       }
       setShowConfirm(false);
-      onSuccess();
+      onSuccess(createdTxnId, pendingCount, { modelName: modelNameStr, qty: totalQty });
     });
   }
 
@@ -573,17 +589,47 @@ function NewInboundModal({
               {/* Sub-tab: Barcode Scanner */}
               {inputSubTab === 'scan' && (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 p-2 border border-slate-200 bg-slate-50 rounded-xl">
-                    <Scan className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                  <div
+                    onClick={() => laserInputRef.current?.focus()}
+                    className={`flex items-center gap-2.5 p-3 rounded-xl border transition-all cursor-text ${
+                      isLaserFocused
+                        ? 'border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <Scan className={`w-4 h-4 ${isLaserFocused ? 'text-emerald-600 animate-pulse' : 'text-slate-400'}`} />
+                      {isLaserFocused && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                      )}
+                    </div>
                     <input
                       type="text"
                       ref={laserInputRef}
                       value={scannerInput}
                       onChange={(e) => setScannerInput(e.target.value)}
+                      onFocus={() => setIsLaserFocused(true)}
+                      onBlur={() => setIsLaserFocused(false)}
                       onKeyDown={handleLaserScannerKeyDown}
-                      placeholder="Laser scanner target (scans auto-add on Enter)..."
-                      className="flex-1 bg-transparent text-sm placeholder:text-slate-400 focus:outline-none"
+                      placeholder={
+                        isLaserFocused
+                          ? 'Scanner Gun Active — pull trigger or scan barcode...'
+                          : 'Click here or tap button below to focus scanner gun...'
+                      }
+                      className="flex-1 bg-transparent text-sm placeholder:text-slate-400 focus:outline-none font-mono text-slate-800"
                     />
+                    {!isLaserFocused && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          laserInputRef.current?.focus();
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors cursor-pointer shadow-2xs flex-shrink-0"
+                      >
+                        Tap to Focus Gun
+                      </button>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     {cameraActive ? (
@@ -729,6 +775,7 @@ function NewInboundModal({
 const ITEMS_PER_PAGE = 10;
 
 export default function InboundPage() {
+  const router = useRouter();
   const { isViewer } = useUser();
   const [transactions, setTransactions] = useState<InboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -738,6 +785,19 @@ export default function InboundPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETE'>('ALL');
+  const [pendingHandoff, setPendingHandoff] = useState<{
+    isOpen: boolean;
+    txnId: string;
+    pendingCount: number;
+    modelName: string;
+    qty: number;
+  }>({
+    isOpen: false,
+    txnId: '',
+    pendingCount: 0,
+    modelName: '',
+    qty: 0,
+  });
 
   const pendingCount = useMemo(
     () => transactions.filter((t) => t.pending_items > 0).length,
@@ -835,20 +895,74 @@ export default function InboundPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Modal */}
+      {/* Modal */}
       {showModal && (
         <NewInboundModal
           onClose={() => setShowModal(false)}
-          onSuccess={() => {
+          onSuccess={(newTxnId, pendingCount, meta) => {
             setShowModal(false);
             fetchTransactions();
-            setFeedback({
-              isOpen: true,
-              type: 'success',
-              title: 'Inbound Receipt Created',
-              message: 'The new inbound shipment has been successfully recorded in inventory.',
-            });
+            if (pendingCount && pendingCount > 0 && newTxnId) {
+              setPendingHandoff({
+                isOpen: true,
+                txnId: newTxnId,
+                pendingCount,
+                modelName: meta?.modelName || 'Shipment',
+                qty: meta?.qty || pendingCount,
+              });
+            } else {
+              setFeedback({
+                isOpen: true,
+                type: 'success',
+                title: 'Inbound Receipt Created',
+                message: 'The new inbound shipment has been successfully recorded in inventory.',
+              });
+            }
           }}
         />
+      )}
+
+      {/* Post-Inbound Pending Serials Handoff Modal (Option A) */}
+      {pendingHandoff.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 text-center space-y-4 border border-slate-100">
+            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200/60">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Shipment Logged — Serials Pending</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                <strong>{pendingHandoff.qty} unit(s)</strong> of <strong>{pendingHandoff.modelName}</strong> were successfully received into the warehouse.
+              </p>
+            </div>
+            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-xs text-amber-800 text-left space-y-1">
+              <p className="font-semibold text-amber-900">Serial Number Assignment Needed</p>
+              <p className="text-amber-700 leading-relaxed">
+                These units have been registered with temporary slots. Before they can be selected for Outbound dispatch or sales, their physical barcode serials must be assigned.
+              </p>
+            </div>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const id = pendingHandoff.txnId;
+                  setPendingHandoff((prev) => ({ ...prev, isOpen: false }));
+                  router.push(`/inbound/${id}`);
+                }}
+                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                Assign Serial Numbers Now <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingHandoff((prev) => ({ ...prev, isOpen: false }))}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors cursor-pointer"
+              >
+                Keep Pending & Return to History
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Modal */}
