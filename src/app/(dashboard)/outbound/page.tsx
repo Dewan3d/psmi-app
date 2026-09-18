@@ -16,6 +16,7 @@ import {
   Clock,
   AlertCircle,
   CheckCircle2,
+  PackageCheck,
   Loader2,
   X,
   Scan,
@@ -39,7 +40,7 @@ import {
   Search,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { reserveUnits, createOutboundTransaction, getFifoSerialsForQuantity, deleteOutboundTransaction } from '@/actions/outbound';
+import { reserveUnits, createOutboundTransaction, getFifoSerialsForQuantity, deleteOutboundTransaction, markTransferDelivered } from '@/actions/outbound';
 import {
   uploadMultipleVerificationDocs,
   deleteVerificationDoc,
@@ -55,6 +56,7 @@ import { VerificationDocument } from '@/lib/types/database';
 
 import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
+import FeedbackModal from '../components/feedback-modal';
 import { useUser } from '../components/user-context';
 
 type OutboundSummary = {
@@ -1702,6 +1704,14 @@ export default function OutboundPage() {
   const [error, setError] = useState<string | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [verifyTarget, setVerifyTarget] = useState<{ id: string; tracking: string | null } | null>(null);
+  const [deliveryTarget, setDeliveryTarget] = useState<OutboundSummary | null>(null);
+  const [isDeliveryLoading, setIsDeliveryLoading] = useState(false);
+  const [deliveryFeedback, setDeliveryFeedback] = useState<{
+    isOpen: boolean;
+    type: 'success' | 'error';
+    title: string;
+    message: string;
+  } | null>(null);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'ALL' | 'NEEDS_WAYBILL' | 'TB' | 'SALES' | 'VERIFIED'>('ALL');
@@ -1816,6 +1826,32 @@ export default function OutboundPage() {
     }
   }
 
+  async function handleConfirmDelivery() {
+    if (!deliveryTarget) return;
+    setIsDeliveryLoading(true);
+    const res = await markTransferDelivered(deliveryTarget.id);
+    setIsDeliveryLoading(false);
+    if (res.error) {
+      setDeliveryFeedback({
+        isOpen: true,
+        type: 'error',
+        title: 'Stock Delivery Failed',
+        message: res.error,
+      });
+    } else {
+      const branchName = deliveryTarget.to_name;
+      const tracking = deliveryTarget.tracking_number || deliveryTarget.id;
+      setDeliveryTarget(null);
+      setDeliveryFeedback({
+        isOpen: true,
+        type: 'success',
+        title: 'Stock Delivered Successfully',
+        message: `Dispatch ${tracking} has been marked as Stock Delivered! All ${deliveryTarget.item_count} items are now available in active branch inventory at ${branchName}.`,
+      });
+      await fetchTransactions();
+    }
+  }
+
   useEffect(() => { fetchTransactions(); }, []);
 
   return (
@@ -1832,6 +1868,58 @@ export default function OutboundPage() {
           trackingNumber={verifyTarget.tracking}
           onClose={() => setVerifyTarget(null)}
           onVerified={() => { setVerifyTarget(null); fetchTransactions(); }}
+        />
+      )}
+
+      {/* Confirm Stock Delivery Modal */}
+      {deliveryTarget && (
+        <ConfirmModal
+          isOpen={!!deliveryTarget}
+          onClose={() => setDeliveryTarget(null)}
+          onConfirm={handleConfirmDelivery}
+          isLoading={isDeliveryLoading}
+          isDestructive={false}
+          title="Confirm Stock Delivered"
+          icon={<PackageCheck className="w-6 h-6 text-emerald-600" />}
+          message={
+            <div className="space-y-3">
+              <p className="text-sm text-slate-700">
+                Are you sure you want to mark outbound dispatch{' '}
+                <strong className="font-mono text-slate-900">{deliveryTarget.tracking_number || deliveryTarget.id}</strong>{' '}
+                as <strong className="text-emerald-700 font-semibold">Stock Delivered</strong>?
+              </p>
+              <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl space-y-1.5 text-xs text-slate-600">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Destination Branch:</span>
+                  <span className="font-semibold text-slate-800">{deliveryTarget.to_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Total Units:</span>
+                  <span className="font-semibold text-slate-800">{deliveryTarget.item_count} units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Product:</span>
+                  <span className="font-semibold text-slate-800">{deliveryTarget.model_name || deliveryTarget.sku || 'Items'}</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                All {deliveryTarget.item_count} unit(s) will be updated from <span className="font-mono text-blue-600 font-medium">IN_TRANSIT</span> to <span className="font-mono text-emerald-600 font-medium">IN_BRANCH</span> at <strong>{deliveryTarget.to_name}</strong>, and this order will show as <strong>Stock Delivered</strong>.
+              </p>
+            </div>
+          }
+          confirmText="Yes, Mark Stock Delivered"
+        />
+      )}
+
+      {/* Stock Delivery Feedback Modal */}
+      {deliveryFeedback && (
+        <FeedbackModal
+          isOpen={deliveryFeedback.isOpen}
+          onClose={() => setDeliveryFeedback(null)}
+          type={deliveryFeedback.type}
+          title={deliveryFeedback.title}
+          message={deliveryFeedback.message}
+          buttonText="Close"
         />
       )}
 
@@ -1970,7 +2058,7 @@ export default function OutboundPage() {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              Verified
+              Verified / Delivered
             </button>
           </div>
 
@@ -2083,9 +2171,28 @@ export default function OutboundPage() {
                       </td>
                       <td className="p-4">
                         {txn.verified ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/50 rounded-full px-2.5 py-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" />Verified
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full px-2.5 py-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {txn.route === 'TB' ? 'Stock Delivered' : 'Verified'}
                           </span>
+                        ) : txn.route === 'TB' ? (
+                          isViewer ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200/50 rounded-full px-2.5 py-1">
+                              <Truck className="w-3.5 h-3.5" />In Transit
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setDeliveryTarget(txn)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200/80 rounded-full px-2.5 py-1 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition-all cursor-pointer group/tb shadow-2xs"
+                              title="Click to mark this branch transfer as Stock Delivered"
+                            >
+                              <Truck className="w-3.5 h-3.5 text-blue-600 group-hover/tb:text-emerald-600" />
+                              <span>In Transit</span>
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 group-hover/tb:bg-emerald-200/80">
+                                Deliver
+                              </span>
+                            </button>
+                          )
                         ) : needsVerify ? (
                           isViewer ? (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/50 rounded-full px-2.5 py-1">
@@ -2116,7 +2223,17 @@ export default function OutboundPage() {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-end gap-3">
+                        <div className="flex items-center justify-end gap-2.5">
+                          {txn.route === 'TB' && !txn.verified && !isViewer && (
+                            <button
+                              onClick={() => setDeliveryTarget(txn)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg px-2.5 py-1 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+                              title="Mark stock as delivered to destination branch"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Stock Delivered
+                            </button>
+                          )}
                           {needsVerify && !isViewer && (
                             <button
                               onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}

@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { OutboundRoute, Transaction } from '@/lib/types/database';
 import { sendWeChatOutboundNotification } from '@/lib/wechat';
+import { revalidatePath } from 'next/cache';
 
 export async function reserveUnits(data: {
   serial_numbers: string[];
@@ -365,6 +366,97 @@ export async function deleteOutboundTransaction(transactionId: string): Promise<
   if (deleteTxnError) {
     return { error: `Failed to delete transaction: ${deleteTxnError.message}` };
   }
+
+  return { error: null };
+}
+
+// ── Mark branch transfer as Stock Delivered (TB: IN_TRANSIT → IN_BRANCH) ────
+export async function markTransferDelivered(transactionId: string): Promise<{ error: string | null }> {
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (user) {
+    const { data: profile } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot update transfer status.' };
+    }
+  }
+
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
+
+  // 1. Fetch transaction details
+  const { data: txn, error: txnError } = await supabase
+    .from('transactions')
+    .select('id, type, route, to_location_id, verified')
+    .eq('id', transactionId)
+    .single();
+
+  if (txnError || !txn) {
+    return { error: txnError?.message || 'Outbound transaction not found.' };
+  }
+
+  if (txn.verified) {
+    return { error: 'This transfer has already been marked as Stock Delivered.' };
+  }
+
+  if (txn.route !== 'TB') {
+    return { error: 'Only branch transfers (Transfer to Branch) can be marked as Stock Delivered.' };
+  }
+
+  // 2. Fetch transaction items
+  const { data: items, error: itemsError } = await supabase
+    .from('transaction_items')
+    .select('serial_number')
+    .eq('transaction_id', transactionId);
+
+  if (itemsError) {
+    return { error: itemsError.message };
+  }
+
+  const serials = (items || []).map((i: any) => i.serial_number);
+
+  // 3. Update inventory units to IN_BRANCH at destination branch
+  if (serials.length > 0) {
+    const updatePayload: { status: 'IN_BRANCH'; location_id?: string } = {
+      status: 'IN_BRANCH',
+    };
+    if (txn.to_location_id) {
+      updatePayload.location_id = txn.to_location_id;
+    }
+
+    const { error: unitsError } = await supabase
+      .from('inventory_units')
+      .update(updatePayload)
+      .in('serial_number', serials);
+
+    if (unitsError) {
+      return { error: `Failed to update inventory unit status: ${unitsError.message}` };
+    }
+  }
+
+  // 4. Mark transaction as verified (completed)
+  const { error: updateTxnError } = await supabase
+    .from('transactions')
+    .update({ verified: true })
+    .eq('id', transactionId);
+
+  if (updateTxnError) {
+    return { error: `Failed to update transaction status: ${updateTxnError.message}` };
+  }
+
+  try {
+    revalidatePath('/outbound');
+    revalidatePath('/inventory');
+    revalidatePath('/');
+  } catch {}
 
   return { error: null };
 }
