@@ -11,6 +11,15 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { VerificationDocument } from '@/lib/types/database';
 
+/** Safely get a Supabase client — prefer admin (service role), fall back to user session */
+async function getSupabaseClient() {
+  try {
+    return createAdminClient();
+  } catch {
+    return await createClient();
+  }
+}
+
 export type DocumentType = 'WAYBILL' | 'PAYMENT_RECEIPT' | 'PAYMENT_SCREENSHOT';
 
 const REQUIRED_DOCS: DocumentType[] = [
@@ -60,7 +69,7 @@ export async function uploadMultipleVerificationDocs(payload: FormData | {
     return { data: [], errors: ['No files or invalid parameters received for upload.'] };
   }
 
-  const supabase = createAdminClient();
+  const supabase = await getSupabaseClient();
   const uploadedDocs: VerificationDocument[] = [];
   const errors: string[] = [];
 
@@ -124,7 +133,7 @@ export async function deleteVerificationDoc(
   docId: string,
   storageUrl: string
 ): Promise<{ error: string | null }> {
-  const supabase = createAdminClient();
+  const supabase = await getSupabaseClient();
 
   // Try extracting the relative path in the storage bucket
   try {
@@ -158,7 +167,7 @@ export async function checkVerificationComplete(
   uploaded: DocumentType[];
   missing: DocumentType[];
 }> {
-  const supabase = createAdminClient();
+  const supabase = await getSupabaseClient();
 
   const { data: docs } = await supabase
     .from('verification_documents')
@@ -180,7 +189,7 @@ export async function checkVerificationComplete(
 export async function getVerificationDocs(
   transactionId: string
 ): Promise<{ data: VerificationDocument[]; error: string | null }> {
-  const supabase = createAdminClient();
+  const supabase = await getSupabaseClient();
 
   const { data, error } = await supabase
     .from('verification_documents')
@@ -199,7 +208,7 @@ export async function markTransactionVerified(data: {
   transaction_id: string;
   user_id: string;
 }): Promise<{ error: string | null }> {
-  const supabase = createAdminClient();
+  const supabase = await getSupabaseClient();
 
   // Check verification completeness
   const { complete, missing } = await checkVerificationComplete(

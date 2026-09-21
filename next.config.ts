@@ -28,6 +28,13 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Allow larger file uploads via Server Actions (default is 1MB)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
+
   // Apply security headers to all routes
   async headers() {
     return [
