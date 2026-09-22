@@ -715,7 +715,7 @@ export async function listInboundTransactions(limit?: number): Promise<{
 }> {
   const supabase = (await createClient()) as any;
 
-  // Query with limit to prevent full-table aggregation scans (drops response time from ~500ms to ~15ms)
+  // Query inbound shipments overview ordered by creation time
   let query = supabase
     .from('inbound_shipments_overview')
     .select('*')
@@ -723,8 +723,6 @@ export async function listInboundTransactions(limit?: number): Promise<{
 
   if (limit) {
     query = query.limit(limit);
-  } else {
-    query = query.limit(50);
   }
 
   const { data: viewData, error: viewError } = await query;
