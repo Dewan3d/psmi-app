@@ -1050,11 +1050,15 @@ function NewOutboundModal({
                                 {/* Quick Presets */}
                                 {remainingStock > 0 && (
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    {[1, 5, 10, 20].filter((q) => q <= remainingStock).map((q) => (
+                                    {[1, 5, 10, 20].map((q) => (
                                       <button
                                         key={q}
                                         type="button"
-                                        onClick={() => setNonSerializedQty(String(q))}
+                                        onClick={() => {
+                                          const currentVal = parseInt(nonSerializedQty, 10) || 0;
+                                          const nextVal = Math.min(currentVal + q, remainingStock);
+                                          setNonSerializedQty(String(nextVal));
+                                        }}
                                         className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
                                       >
                                         +{q}
