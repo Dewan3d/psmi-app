@@ -206,23 +206,49 @@ export async function bulkUpdatePrices(
   const errors: string[] = [];
   let updated = 0;
 
-  // Fetch all existing SKUs for validation
+  // Fetch all existing SKUs and model names for validation and matching
   const { data: existingProducts, error: fetchError } = await supabase
     .from('products')
-    .select('sku');
+    .select('sku, model_name');
 
   if (fetchError) {
     return { updated: 0, skipped: [], errors: [`Failed to fetch products: ${fetchError.message}`] };
   }
 
   const existingSkus = new Set((existingProducts || []).map((p) => p.sku.toUpperCase()));
+  const modelToSkus = new Map<string, string[]>();
+
+  for (const p of existingProducts || []) {
+    if (p.model_name) {
+      const normModel = p.model_name.trim().toUpperCase();
+      if (!modelToSkus.has(normModel)) modelToSkus.set(normModel, []);
+      modelToSkus.get(normModel)!.push(p.sku);
+    }
+  }
 
   for (const update of updates) {
-    const skuUpper = update.sku.toUpperCase().trim();
+    const rawIdentifier = update.sku.trim().toUpperCase();
+    let targetSkus: string[] = [];
 
-    if (!existingSkus.has(skuUpper)) {
-      skipped.push({ sku: update.sku, reason: 'SKU not found in catalogue' });
-      continue;
+    if (existingSkus.has(rawIdentifier)) {
+      targetSkus = [rawIdentifier];
+    } else if (modelToSkus.has(rawIdentifier)) {
+      targetSkus = modelToSkus.get(rawIdentifier)!;
+    } else {
+      // Fuzzy match ignoring punctuation/spaces (e.g., "EB-70" vs "EB70" or "P-100" vs "P100")
+      const cleanIdent = rawIdentifier.replace(/[^A-Z0-9]/g, '');
+      const fuzzyMatches = (existingProducts || []).filter((p) => {
+        const cleanModel = (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const cleanSku = (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        return (cleanModel && cleanModel === cleanIdent) || (cleanSku && cleanSku === cleanIdent);
+      });
+
+      if (fuzzyMatches.length > 0) {
+        targetSkus = Array.from(new Set(fuzzyMatches.map((p) => p.sku)));
+      } else {
+        skipped.push({ sku: update.sku, reason: 'SKU or Model not found in catalogue' });
+        continue;
+      }
     }
 
     const updateData: Record<string, any> = {};
@@ -234,15 +260,17 @@ export async function bulkUpdatePrices(
       continue;
     }
 
-    const { error: updateError } = await supabase
-      .from('products')
-      .update(updateData)
-      .eq('sku', skuUpper);
+    for (const skuToUpdate of targetSkus) {
+      const { error: updateError } = await supabase
+        .from('products')
+        .update(updateData)
+        .eq('sku', skuToUpdate);
 
-    if (updateError) {
-      errors.push(`Failed to update ${update.sku}: ${updateError.message}`);
-    } else {
-      updated++;
+      if (updateError) {
+        errors.push(`Failed to update ${skuToUpdate}: ${updateError.message}`);
+      } else {
+        updated++;
+      }
     }
   }
 

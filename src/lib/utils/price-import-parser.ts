@@ -31,9 +31,20 @@ export interface PriceImportResult {
 }
 
 // Known header aliases for auto-detection
-const SKU_ALIASES = ['sku', 'sku_code', 'product_code', 'item_code', 'sku code', 'product code', 'item code', 'code'];
-const COST_ALIASES = ['cost_price', 'cost', 'purchase_price', 'buying_price', 'landed_cost', 'cost price', 'purchase price', 'buying price', 'landed cost', 'buy price', 'buy_price'];
-const RETAIL_ALIASES = ['retail_price', 'selling_price', 'price', 'sale_price', 'rrp', 'retail price', 'selling price', 'sale price', 'sell price', 'sell_price', 'unit price', 'unit_price'];
+const SKU_ALIASES = [
+  'sku', 'sku_code', 'product_code', 'item_code', 'sku code', 'product code', 'item code', 'code',
+  'model', 'model_name', 'model name', 'models', 'model no', 'model number', 'model_number',
+  'product', 'product_name', 'product name', 'device', 'device_name', 'device name',
+  'item', 'item_name', 'item name', 'name', 'title', 'tag', 'tags'
+];
+const COST_ALIASES = [
+  'cost_price', 'cost', 'purchase_price', 'buying_price', 'landed_cost', 'cost price', 'purchase price', 'buying price', 'landed cost', 'buy price', 'buy_price'
+];
+const RETAIL_ALIASES = [
+  'retail_price', 'selling_price', 'price', 'sale_price', 'rrp', 'retail price', 'selling price',
+  'sale price', 'sell price', 'sell_price', 'unit price', 'unit_price',
+  'device_price', 'device price', 'price of the device', 'device price', 'device_cost', 'amount', 'rate', 'value'
+];
 
 function findColumnIndex(headers: string[], aliases: string[]): number {
   const normalized = headers.map((h) => h.toLowerCase().trim());
@@ -105,7 +116,7 @@ export async function parsePriceFile(file: File): Promise<PriceImportResult> {
         rows: [],
         errors: [{
           row_number: 1,
-          message: `Could not find a SKU column. Expected one of: ${SKU_ALIASES.join(', ')}. Found headers: ${headers.join(', ')}`,
+          message: `Could not find a SKU or Model column. Expected headers such as: Model, Model Name, SKU, Product, or Device. Found headers: ${headers.join(', ')}`,
         }],
         detected_columns: { sku: null, cost: null, retail: null },
         total_rows: rawData.length - 1,
@@ -117,7 +128,7 @@ export async function parsePriceFile(file: File): Promise<PriceImportResult> {
         rows: [],
         errors: [{
           row_number: 1,
-          message: `Could not find a price column. Expected a header such as: Price, Selling Price, Retail Price, or Amount. Found headers: ${headers.join(', ')}`,
+          message: `Could not find a price column. Expected a header such as: Price, Selling Price, Retail Price, or Device Price. Found headers: ${headers.join(', ')}`,
         }],
         detected_columns: { sku: headers[skuIdx], cost: null, retail: null },
         total_rows: rawData.length - 1,

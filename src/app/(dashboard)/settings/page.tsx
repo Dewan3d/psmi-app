@@ -189,6 +189,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
         matched.map((r: any) => ({
           sku: r.sku,
           retail_price: r.retail_price,
+          cost_price: r.cost_price,
         }))
       );
       setImportResult(result);
@@ -326,14 +327,34 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   try {
                     const { parsePriceFile } = await import('@/lib/utils/price-import-parser');
                     const result = await parsePriceFile(file);
-                    // Match against existing products
+                    // Match against existing products by SKU or Model Name
                     const existingSkuSet = new Set(products.map((p) => p.sku.toUpperCase()));
+                    const modelMap = new Map<string, string>();
+                    products.forEach((p) => {
+                      if (p.model_name) modelMap.set(p.model_name.trim().toUpperCase(), p.model_name);
+                    });
+
                     const preview = {
                       ...result,
-                      rows: result.rows.map((r) => ({
-                        ...r,
-                        matched: existingSkuSet.has(r.sku.toUpperCase()),
-                      })),
+                      rows: result.rows.map((r) => {
+                        const raw = r.sku.trim().toUpperCase();
+                        const cleanRaw = raw.replace(/[^A-Z0-9]/g, '');
+                        const matchedBySku = existingSkuSet.has(raw);
+                        const matchedByModel = modelMap.has(raw);
+                        const matchedProd = products.find((p) =>
+                          p.sku.toUpperCase() === raw ||
+                          (p.model_name && p.model_name.trim().toUpperCase() === raw) ||
+                          (cleanRaw && (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanRaw) ||
+                          (cleanRaw && (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanRaw)
+                        );
+                        const isMatched = matchedBySku || matchedByModel || Boolean(matchedProd);
+
+                        return {
+                          ...r,
+                          matched: isMatched,
+                          targetDisplay: matchedProd ? `${matchedProd.model_name} (${matchedProd.sku})` : r.sku,
+                        };
+                      }),
                     };
                     setImportPreview(preview);
                   } catch (err) {
@@ -348,7 +369,7 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-slate-600">
-                    {importPreview.rows.filter((r: any) => r.matched).length} of {importPreview.rows.length} SKU(s) matched
+                    {importPreview.rows.filter((r: any) => r.matched).length} of {importPreview.rows.length} item(s) matched
                     {importPreview.detected_columns.cost && ` · Cost: "${importPreview.detected_columns.cost}"`}
                     {importPreview.detected_columns.retail && ` · Retail: "${importPreview.detected_columns.retail}"`}
                   </p>
@@ -357,15 +378,20 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 font-semibold text-slate-500">SKU</th>
-                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Selling Price</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500">Model / SKU</th>
+                        <th className="px-3 py-2 font-semibold text-slate-500 text-right">Price</th>
                         <th className="px-3 py-2 font-semibold text-slate-500 text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {importPreview.rows.slice(0, 50).map((row: any, i: number) => (
                         <tr key={i} className={row.matched ? '' : 'bg-amber-50/50'}>
-                          <td className="px-3 py-1.5 font-mono font-medium text-slate-800">{row.sku}</td>
+                          <td className="px-3 py-1.5 font-mono font-medium text-slate-800">
+                            <div>{row.sku}</div>
+                            {row.targetDisplay && row.targetDisplay !== row.sku && (
+                              <div className="text-[10px] text-slate-400 font-sans font-normal">→ {row.targetDisplay}</div>
+                            )}
+                          </td>
                           <td className="px-3 py-1.5 font-mono text-slate-600 text-right">
                             {row.retail_price != null
                               ? `₦${row.retail_price.toLocaleString()}`
@@ -375,9 +401,9 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                           </td>
                           <td className="px-3 py-1.5 text-center">
                             {row.matched ? (
-                              <span className="text-emerald-600 font-semibold">✓</span>
+                              <span className="text-emerald-600 font-semibold" title="Matched to product in catalogue">✓</span>
                             ) : (
-                              <span className="text-amber-600 font-semibold" title="SKU not found in catalogue">⚠</span>
+                              <span className="text-amber-600 font-semibold" title="Model/SKU not found in catalogue">⚠</span>
                             )}
                           </td>
                         </tr>
