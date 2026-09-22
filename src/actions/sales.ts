@@ -8,7 +8,9 @@
 // ============================================================
 
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { SaleRecord } from '@/lib/types/database';
+import { revalidatePath } from 'next/cache';
 
 // ── Fetch sales transactions with full details ────────────────
 export async function getSales(filters?: {
@@ -29,7 +31,7 @@ export async function getSales(filters?: {
   // 1. Fetch outbound transactions (B2B + B2C only)
   let query = supabase
     .from('transactions')
-    .select('id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes', { count: 'exact' })
+    .select('id, tracking_number, route, customer_name, sales_manager, sold_at, created_at, verified, user_id, notes', { count: 'exact' })
     .eq('type', 'OUTBOUND')
     .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
     .order('created_at', { ascending: false });
@@ -126,6 +128,7 @@ export async function getSales(filters?: {
       route: txn.route as 'B2B' | 'B2C',
       customer_name: txn.customer_name,
       sales_manager: txn.sales_manager || null,
+      sold_at: txn.sold_at || null,
       created_at: txn.created_at,
       verified: txn.verified,
       user_name: profileMap.get(txn.user_id) || 'Unknown',
@@ -327,6 +330,54 @@ export async function batchUpdateSalePrices(data: {
   return { error: null };
 }
 
+// ── Update transaction Date of Sale (sold_at) ──────────────────
+export async function updateSaleDate(data: {
+  transaction_id: string;
+  sold_at: string;
+}): Promise<{ error: string | null }> {
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
+
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (user) {
+    const { data: profile } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot edit date of sale.' };
+    }
+  }
+
+  if (!data.sold_at) {
+    return { error: 'Date of sale is required.' };
+  }
+
+  const dateValue = new Date(data.sold_at).toISOString();
+
+  const { error } = await supabase
+    .from('transactions')
+    .update({ sold_at: dateValue })
+    .eq('id', data.transaction_id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  try {
+    revalidatePath('/sales');
+    revalidatePath('/outbound');
+  } catch {}
+
+  return { error: null };
+}
+
 // ── Export sales data as CSV string ───────────────────────────
 export async function exportSalesCSV(filters?: {
   from_date?: string;
@@ -341,7 +392,7 @@ export async function exportSalesCSV(filters?: {
   }
 
   const headers = [
-    'Date',
+    'Date of Sale',
     'Tracking #',
     'Route',
     'Customer',
@@ -356,11 +407,12 @@ export async function exportSalesCSV(filters?: {
   const rows: string[] = [headers.join(',')];
 
   for (const sale of result.data) {
+    const effectiveDate = sale.sold_at || sale.created_at;
     for (const item of sale.items) {
       const salePrice = item.sale_price ?? 0;
       const costPrice = item.cost_price ?? 0;
       rows.push([
-        new Date(sale.created_at).toLocaleDateString('en-GB'),
+        new Date(effectiveDate).toLocaleDateString('en-GB'),
         sale.tracking_number || '',
         sale.route,
         `"${(sale.customer_name || '').replace(/"/g, '""')}"`,
@@ -403,12 +455,13 @@ export async function exportSalesXLSX(filters?: {
   const tableRows: any[][] = [];
 
   for (const sale of result.data) {
+    const effectiveDate = sale.sold_at || sale.created_at;
     for (const item of sale.items) {
       const salePrice = item.sale_price ?? 0;
       const costPrice = item.cost_price ?? 0;
       const profit = salePrice - costPrice;
       tableRows.push([
-        new Date(sale.created_at).toLocaleDateString('en-GB'),
+        new Date(effectiveDate).toLocaleDateString('en-GB'),
         sale.tracking_number || '—',
         sale.route,
         sale.customer_name || '—',

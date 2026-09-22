@@ -35,6 +35,7 @@ import {
   getSales,
   getSalesSummaryStats,
   updateSalePrice,
+  updateSaleDate,
   batchUpdateSalePrices,
   exportSalesCSV,
   exportSalesXLSX,
@@ -212,6 +213,121 @@ function InlinePriceEditor({
   );
 }
 
+// ── Inline Date of Sale Editor ─────────────────────────────────
+function InlineDateEditor({
+  transactionId,
+  currentDate,
+  onSaved,
+}: {
+  transactionId: string;
+  currentDate: string;
+  onSaved: () => void;
+}) {
+  const { isViewer } = useUser();
+  const [editing, setEditing] = useState(false);
+  const initialDateStr = (() => {
+    try {
+      return new Date(currentDate).toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
+  })();
+  const [dateValue, setDateValue] = useState(initialDateStr);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const displayFormatted = (() => {
+    try {
+      return new Date(currentDate).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return currentDate;
+    }
+  })();
+
+  if (isViewer) {
+    return (
+      <span className="text-sm text-slate-600 whitespace-nowrap">
+        {displayFormatted}
+      </span>
+    );
+  }
+
+  function handleSave(e?: React.MouseEvent | React.FormEvent) {
+    if (e) e.stopPropagation();
+    if (!dateValue) {
+      setError('Required');
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await updateSaleDate({
+        transaction_id: transactionId,
+        sold_at: dateValue,
+      });
+      if (res.error) {
+        setError(res.error);
+      } else {
+        setEditing(false);
+        onSaved();
+      }
+    });
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setEditing(true);
+        }}
+        className="group inline-flex items-center gap-1.5 text-sm text-slate-700 hover:text-indigo-600 transition-colors whitespace-nowrap"
+        title="Click to edit date of sale"
+      >
+        <span>{displayFormatted}</span>
+        <Calendar className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-500 transition-colors" />
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className="inline-flex items-center gap-1 bg-white p-1 rounded-lg border border-indigo-200 shadow-sm"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <input
+        type="date"
+        value={dateValue}
+        onChange={(e) => setDateValue(e.target.value)}
+        className="px-1.5 py-0.5 text-xs text-slate-800 border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+        autoFocus
+      />
+      <button
+        onClick={handleSave}
+        disabled={isPending}
+        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+        title="Save date"
+      >
+        {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setEditing(false);
+        }}
+        className="p-1 text-slate-400 hover:bg-slate-100 rounded transition-colors"
+        title="Cancel"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+      {error && <span className="text-[10px] text-rose-500">{error}</span>}
+    </div>
+  );
+}
+
 // ── SKU Batch Price Editor ────────────────────────────────────
 function SkuBatchPriceEditor({
   transactionId,
@@ -360,11 +476,11 @@ function SaleRow({
         onClick={() => setExpanded(!expanded)}
       >
         <td className="px-4 py-3.5 text-sm text-slate-600 whitespace-nowrap">
-          {new Date(sale.created_at).toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          })}
+          <InlineDateEditor
+            transactionId={sale.transaction_id}
+            currentDate={sale.sold_at || sale.created_at}
+            onSaved={onPriceUpdated}
+          />
         </td>
         <td className="px-4 py-3.5">
           <span className="text-sm font-mono font-medium text-slate-800">

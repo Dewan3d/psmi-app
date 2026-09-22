@@ -379,6 +379,7 @@ function NewOutboundModal({
   const [toLocationId, setToLocationId] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [salesManager, setSalesManager] = useState('');
+  const [soldAt, setSoldAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [sku, setSku] = useState('');
   const [selectedSerials, setSelectedSerials] = useState<string[]>([]);
   const [manualSerial, setManualSerial] = useState('');
@@ -609,6 +610,7 @@ function NewOutboundModal({
         notes: notes || undefined,
         customer_name: (route === 'B2B' || route === 'B2C') ? customerName.trim() : undefined,
         sales_manager: (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
+        sold_at: soldAt || undefined,
         item_prices: (route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined,
       });
       if (result.error) { setError(result.error); setShowConfirm(false); return; }
@@ -790,17 +792,36 @@ function NewOutboundModal({
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Dispatch Notes (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Expedited delivery via GIG Logistics"
-                  className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-800 placeholder:text-slate-400"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Date of Sale / Outbound Date <span className="text-indigo-600">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={soldAt}
+                    onChange={(e) => setSoldAt(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-800 bg-white"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Defaults to today. Change this to backdate if recording past sales or dispatches.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Dispatch Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="e.g. Expedited delivery via GIG Logistics"
+                    className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-800 placeholder:text-slate-400"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Optional reference, invoice number, or delivery remarks.
+                  </p>
+                </div>
               </div>
             </div>
           )}

@@ -80,6 +80,7 @@ export interface Transaction {
   verified: boolean;
   customer_name?: string | null;
   sales_manager?: string | null;
+  sold_at?: string | null;
   created_at: string;
 }
 
@@ -190,6 +191,7 @@ export interface SaleRecord {
   route: 'B2B' | 'B2C';
   customer_name: string | null;
   sales_manager?: string | null;
+  sold_at?: string | null;
   created_at: string;
   verified: boolean;
   user_name: string;
@@ -291,6 +293,7 @@ export interface Database {
           verified?: boolean;
           customer_name?: string | null;
           sales_manager?: string | null;
+          sold_at?: string | null;
         };
         Update: Partial<Omit<Transaction, 'id'>>;
       };

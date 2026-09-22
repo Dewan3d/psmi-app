@@ -75,6 +75,7 @@ export async function createOutboundTransaction(data: {
   notes?: string;
   customer_name?: string;
   sales_manager?: string;
+  sold_at?: string;
   item_prices?: { serial_number: string; sale_price: number }[];
 }): Promise<{ data: Transaction | null; error: string | null }> {
   const supabase = await createClient();
@@ -99,18 +100,24 @@ export async function createOutboundTransaction(data: {
   }
 
   // 1. Create transaction
+  const insertPayload: any = {
+    type: 'OUTBOUND',
+    route: data.route,
+    from_location_id: data.from_location_id,
+    to_location_id: data.to_location_id || null,
+    user_id: data.user_id,
+    notes: data.notes || null,
+    customer_name: data.customer_name || null,
+    sales_manager: data.sales_manager || null,
+  };
+
+  if (data.sold_at) {
+    insertPayload.sold_at = new Date(data.sold_at).toISOString();
+  }
+
   const { data: transaction, error: txnError } = await supabase
     .from('transactions')
-    .insert({
-      type: 'OUTBOUND',
-      route: data.route,
-      from_location_id: data.from_location_id,
-      to_location_id: data.to_location_id || null,
-      user_id: data.user_id,
-      notes: data.notes || null,
-      customer_name: data.customer_name || null,
-      sales_manager: data.sales_manager || null,
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
