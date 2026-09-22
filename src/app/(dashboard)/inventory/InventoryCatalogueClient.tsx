@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { StockSummary, ProductCategory } from '@/lib/types/database';
 import { createProduct } from '@/actions/products';
+import { useUser } from '@/app/(dashboard)/components/user-context';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -33,6 +34,7 @@ export default function InventoryCatalogueClient({
   initialStockSummary: StockSummary[];
 }) {
   const router = useRouter();
+  const { isViewer } = useUser();
   const [stockSummary, setStockSummary] = useState<StockSummary[]>(initialStockSummary);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
@@ -132,13 +134,15 @@ export default function InventoryCatalogueClient({
             Browse active SKUs and track physical counts across locations.
           </p>
         </div>
-        <button
-          onClick={() => setIsAddOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          Add New Product
-        </button>
+        {!isViewer && (
+          <button
+            onClick={() => setIsAddOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Add New Product
+          </button>
+        )}
       </div>
 
       {/* ── Content Grid ─────────────────────────────────────── */}

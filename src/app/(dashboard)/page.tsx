@@ -13,6 +13,7 @@ import {
   getStockByCategory,
 } from '@/actions/dashboard';
 import StockInfographicContainer from './components/stock-infographic-container';
+import Link from 'next/link';
 import {
   Package,
   TrendingUp,
@@ -131,12 +132,15 @@ export default async function DashboardPage() {
       {/* ── KPI Cards ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Inventory */}
-        <div className="bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-shadow">
+        <Link href="/dashboard/total-inventory" className="group bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-all cursor-pointer hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-3">
             <div className="p-2.5 bg-indigo-50 rounded-xl">
               <Boxes className="w-5 h-5 text-indigo-600" />
             </div>
-            <Sparkline data={monthlyValues.length > 1 ? monthlyValues : [0, totalUnits]} color="#6366f1" />
+            <div className="flex items-center gap-2">
+              <Sparkline data={monthlyValues.length > 1 ? monthlyValues : [0, totalUnits]} color="#6366f1" />
+              <ArrowUpRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
           </div>
           <p className="text-sm font-medium text-slate-500">Total Inventory</p>
           <p className="text-3xl font-bold text-slate-900 mt-1 tracking-tight">
@@ -145,40 +149,46 @@ export default async function DashboardPage() {
           <p className="text-xs text-slate-400 mt-1">
             {formatNumber(totalInWarehouse)} in warehouse
           </p>
-        </div>
+        </Link>
 
         {/* Monthly Outbound */}
-        <div className="bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-shadow">
+        <Link href="/outbound" className="group bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-all cursor-pointer hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-3">
             <div className="p-2.5 bg-emerald-50 rounded-xl">
               <TrendingUp className="w-5 h-5 text-emerald-600" />
             </div>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">
-              <ArrowUpRight className="w-3 h-3" />
-              {totalSold > 0 ? '+' : ''}
-              {totalSold}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">
+                <ArrowUpRight className="w-3 h-3" />
+                {totalSold > 0 ? '+' : ''}
+                {totalSold}
+              </span>
+              <ArrowUpRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
           </div>
           <p className="text-sm font-medium text-slate-500">Total Outbound</p>
           <p className="text-3xl font-bold text-slate-900 mt-1 tracking-tight">
             {formatNumber(totalSold)}
           </p>
           <p className="text-xs text-slate-400 mt-1">Verified transactions</p>
-        </div>
+        </Link>
 
         {/* Low Stock Alerts */}
-        <div className="bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-shadow">
+        <Link href="/dashboard/low-stock" className="group bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-all cursor-pointer hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-3">
             <div className={`p-2.5 rounded-xl ${pendingAlerts > 0 ? 'bg-amber-50' : 'bg-slate-50'}`}>
               <AlertTriangle
                 className={`w-5 h-5 ${pendingAlerts > 0 ? 'text-amber-500' : 'text-slate-400'}`}
               />
             </div>
-            {pendingAlerts > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
-                Attention
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {pendingAlerts > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
+                  Attention
+                </span>
+              )}
+              <ArrowUpRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
           </div>
           <p className="text-sm font-medium text-slate-500">Low Stock Alerts</p>
           <p className="text-3xl font-bold text-slate-900 mt-1 tracking-tight">
@@ -189,14 +199,15 @@ export default async function DashboardPage() {
               ? 'Products below threshold'
               : 'All stock levels healthy'}
           </p>
-        </div>
+        </Link>
 
         {/* Locations */}
-        <div className="bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-shadow">
+        <Link href="/dashboard/locations" className="group bg-white rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_4px_20px_-5px_rgba(6,81,237,0.15)] transition-all cursor-pointer hover:-translate-y-0.5">
           <div className="flex items-center justify-between mb-3">
             <div className="p-2.5 bg-violet-50 rounded-xl">
               <Package className="w-5 h-5 text-violet-600" />
             </div>
+            <ArrowUpRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
           <p className="text-sm font-medium text-slate-500">
             Active Locations
@@ -207,7 +218,7 @@ export default async function DashboardPage() {
           <p className="text-xs text-slate-400 mt-1">
             Warehouses &amp; branches
           </p>
-        </div>
+        </Link>
       </div>
 
       {/* ── Visual Stock Infographics ─────────────────────────── */}

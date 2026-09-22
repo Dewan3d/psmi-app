@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Product, UnitStatus } from '@/lib/types/database';
 import { updateProduct } from '@/actions/products';
+import { useUser } from '@/app/(dashboard)/components/user-context';
 
 type UnitItem = {
   serial_number: string;
@@ -159,6 +160,7 @@ export default function SkuDetailClient({
   initialUnits: UnitItem[];
 }) {
   const router = useRouter();
+  const { isViewer } = useUser();
   const [product, setProduct] = useState<Product>(initialProduct);
   const [units] = useState<UnitItem[]>(initialUnits);
 
@@ -273,22 +275,24 @@ export default function SkuDetailClient({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setIsEditOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
-          >
-            <Edit className="w-4 h-4 text-indigo-600" />
-            Edit Product
-          </button>
-          <Link
-            href={`/outbound?sku=${encodeURIComponent(product.sku)}`}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
-          >
-            <ScanLine className="w-4 h-4" />
-            Scan Outbound
-          </Link>
-        </div>
+        {!isViewer && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setIsEditOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
+            >
+              <Edit className="w-4 h-4 text-indigo-600" />
+              Edit Product
+            </button>
+            <Link
+              href={`/outbound?sku=${encodeURIComponent(product.sku)}`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+            >
+              <ScanLine className="w-4 h-4" />
+              Scan Outbound
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* ── Main Grid ────────────────────────────────────────── */}
@@ -301,12 +305,14 @@ export default function SkuDetailClient({
               <h2 className="text-base font-semibold text-slate-800">
                 Product Specifications
               </h2>
-              <button
-                onClick={() => setIsEditOpen(true)}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
-              >
-                Edit details
-              </button>
+              {!isViewer && (
+                <button
+                  onClick={() => setIsEditOpen(true)}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  Edit details
+                </button>
+              )}
             </div>
             <div className="divide-y divide-slate-50">
               <div className="flex items-center justify-between p-4 hover:bg-slate-50/50 transition-colors">
@@ -620,7 +626,7 @@ export default function SkuDetailClient({
       </div>
 
       {/* ── Edit Product Modal ────────────────────────────────────────── */}
-      {isEditOpen && (
+      {isEditOpen && !isViewer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-100">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
