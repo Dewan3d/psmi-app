@@ -206,49 +206,76 @@ export async function bulkUpdatePrices(
   const errors: string[] = [];
   let updated = 0;
 
-  // Fetch all existing SKUs and model names for validation and matching
+  // Fetch all existing SKUs, model names, and barcodes for validation and flexible matching
   const { data: existingProducts, error: fetchError } = await supabase
     .from('products')
-    .select('sku, model_name');
+    .select('sku, model_name, barcode');
 
   if (fetchError) {
     return { updated: 0, skipped: [], errors: [`Failed to fetch products: ${fetchError.message}`] };
   }
 
-  const existingSkus = new Set((existingProducts || []).map((p) => p.sku.toUpperCase()));
-  const modelToSkus = new Map<string, string[]>();
+  const productsList = existingProducts || [];
 
-  for (const p of existingProducts || []) {
-    if (p.model_name) {
-      const normModel = p.model_name.trim().toUpperCase();
-      if (!modelToSkus.has(normModel)) modelToSkus.set(normModel, []);
-      modelToSkus.get(normModel)!.push(p.sku);
+  function matchSkus(rawInput: string): string[] {
+    const norm = rawInput.trim().toUpperCase();
+    if (!norm) return [];
+
+    // 1. Exact SKU
+    const bySku = productsList.filter((p) => p.sku.toUpperCase() === norm);
+    if (bySku.length > 0) return bySku.map((p) => p.sku);
+
+    // 2. Exact Model Name
+    const byModel = productsList.filter((p) => (p.model_name || '').trim().toUpperCase() === norm);
+    if (byModel.length > 0) return byModel.map((p) => p.sku);
+
+    // 3. Base Model Name (e.g. "FAN (OLD)" or "LCD (TV)" stripped to "FAN" or "LCD")
+    const byBase = productsList.filter((p) => {
+      const base = (p.model_name || '')
+        .replace(/\s*[\(\[\{][^\)\]\}]*[\)\]\}]/g, '')
+        .trim()
+        .toUpperCase();
+      return base === norm;
+    });
+    if (byBase.length > 0) return byBase.map((p) => p.sku);
+
+    // 4. Barcode
+    const byBarcode = productsList.filter((p) => (p.barcode || '').trim().toUpperCase() === norm);
+    if (byBarcode.length > 0) return byBarcode.map((p) => p.sku);
+
+    // 5. Clean alphanumeric match (e.g. "P-100" vs "P100")
+    const cleanIdent = norm.replace(/[^A-Z0-9]/g, '');
+    if (cleanIdent.length >= 2) {
+      const cleanMatches = productsList.filter((p) => {
+        const cleanM = (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const cleanS = (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const cleanB = (p.model_name || '')
+          .replace(/\s*[\(\[\{][^\)\]\}]*[\)\]\}]/g, '')
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '');
+        return cleanM === cleanIdent || cleanS === cleanIdent || cleanB === cleanIdent;
+      });
+      if (cleanMatches.length > 0) return cleanMatches.map((p) => p.sku);
     }
+
+    // 6. Word / Prefix match (e.g. "LCD" matches "LCD 32IN PAYGO", "LCD (TV)")
+    if (norm.length >= 3) {
+      const byPrefix = productsList.filter((p) => {
+        const m = (p.model_name || '').trim().toUpperCase();
+        return m.startsWith(norm + ' ') || m.startsWith(norm + '(') || m.startsWith(norm + '-');
+      });
+      if (byPrefix.length > 0) return byPrefix.map((p) => p.sku);
+    }
+
+    return [];
   }
 
   for (const update of updates) {
-    const rawIdentifier = update.sku.trim().toUpperCase();
-    let targetSkus: string[] = [];
+    const targetSkus = Array.from(new Set(matchSkus(update.sku)));
 
-    if (existingSkus.has(rawIdentifier)) {
-      targetSkus = [rawIdentifier];
-    } else if (modelToSkus.has(rawIdentifier)) {
-      targetSkus = modelToSkus.get(rawIdentifier)!;
-    } else {
-      // Fuzzy match ignoring punctuation/spaces (e.g., "EB-70" vs "EB70" or "P-100" vs "P100")
-      const cleanIdent = rawIdentifier.replace(/[^A-Z0-9]/g, '');
-      const fuzzyMatches = (existingProducts || []).filter((p) => {
-        const cleanModel = (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const cleanSku = (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        return (cleanModel && cleanModel === cleanIdent) || (cleanSku && cleanSku === cleanIdent);
-      });
-
-      if (fuzzyMatches.length > 0) {
-        targetSkus = Array.from(new Set(fuzzyMatches.map((p) => p.sku)));
-      } else {
-        skipped.push({ sku: update.sku, reason: 'SKU or Model not found in catalogue' });
-        continue;
-      }
+    if (targetSkus.length === 0) {
+      skipped.push({ sku: update.sku, reason: 'SKU or Model not found in catalogue' });
+      continue;
     }
 
     const updateData: Record<string, any> = {};

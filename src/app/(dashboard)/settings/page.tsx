@@ -54,6 +54,7 @@ type Product = {
   low_stock_threshold: number;
   is_serialized: boolean;
   category_badge: ProductCategory;
+  barcode?: string | null;
   model_group?: string | null;
   cost_price?: number | null;
   retail_price?: number | null;
@@ -185,13 +186,15 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
     const matched = importPreview?.rows.filter((r: any) => r.matched) || [];
     if (matched.length === 0) return;
     startImporting(async () => {
-      const result = await bulkUpdatePrices(
-        matched.map((r: any) => ({
-          sku: r.sku,
+      const updates = matched.flatMap((r: any) => {
+        const skus: string[] = r.targetSkus && r.targetSkus.length > 0 ? r.targetSkus : [r.sku];
+        return skus.map((sku) => ({
+          sku,
           retail_price: r.retail_price,
           cost_price: r.cost_price,
-        }))
-      );
+        }));
+      });
+      const result = await bulkUpdatePrices(updates);
       setImportResult(result);
       setShowImportConfirm(false);
       if (result.updated > 0) await loadProducts();
@@ -327,32 +330,78 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                   try {
                     const { parsePriceFile } = await import('@/lib/utils/price-import-parser');
                     const result = await parsePriceFile(file);
-                    // Match against existing products by SKU or Model Name
-                    const existingSkuSet = new Set(products.map((p) => p.sku.toUpperCase()));
-                    const modelMap = new Map<string, string>();
-                    products.forEach((p) => {
-                      if (p.model_name) modelMap.set(p.model_name.trim().toUpperCase(), p.model_name);
-                    });
+
+                    function findMatches(rawInput: string, prodList: Product[]) {
+                      const norm = rawInput.trim().toUpperCase();
+                      if (!norm) return [];
+
+                      // 1. Exact SKU
+                      const bySku = prodList.filter((p) => p.sku.toUpperCase() === norm);
+                      if (bySku.length > 0) return bySku;
+
+                      // 2. Exact Model Name
+                      const byModel = prodList.filter((p) => (p.model_name || '').trim().toUpperCase() === norm);
+                      if (byModel.length > 0) return byModel;
+
+                      // 3. Base Model Name (e.g. "FAN (OLD)" or "LCD (TV)" stripped of parentheses)
+                      const byBase = prodList.filter((p) => {
+                        const base = (p.model_name || '')
+                          .replace(/\s*[\(\[\{][^\)\]\}]*[\)\]\}]/g, '')
+                          .trim()
+                          .toUpperCase();
+                        return base === norm;
+                      });
+                      if (byBase.length > 0) return byBase;
+
+                      // 4. Barcode
+                      const byBarcode = prodList.filter((p) => (p.barcode || '').trim().toUpperCase() === norm);
+                      if (byBarcode.length > 0) return byBarcode;
+
+                      // 5. Clean alphanumeric match (e.g. "P-100" vs "P100")
+                      const cleanIdent = norm.replace(/[^A-Z0-9]/g, '');
+                      if (cleanIdent.length >= 2) {
+                        const cleanMatches = prodList.filter((p) => {
+                          const cleanM = (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                          const cleanS = (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                          const cleanB = (p.model_name || '')
+                            .replace(/\s*[\(\[\{][^\)\]\}]*[\)\]\}]/g, '')
+                            .toUpperCase()
+                            .replace(/[^A-Z0-9]/g, '');
+                          return cleanM === cleanIdent || cleanS === cleanIdent || cleanB === cleanIdent;
+                        });
+                        if (cleanMatches.length > 0) return cleanMatches;
+                      }
+
+                      // 6. Word / Prefix match (e.g. "LCD" matches "LCD (TV)")
+                      if (norm.length >= 3) {
+                        const byPrefix = prodList.filter((p) => {
+                          const m = (p.model_name || '').trim().toUpperCase();
+                          return m.startsWith(norm + ' ') || m.startsWith(norm + '(') || m.startsWith(norm + '-');
+                        });
+                        if (byPrefix.length > 0) return byPrefix;
+                      }
+
+                      return [];
+                    }
 
                     const preview = {
                       ...result,
-                      rows: result.rows.map((r) => {
-                        const raw = r.sku.trim().toUpperCase();
-                        const cleanRaw = raw.replace(/[^A-Z0-9]/g, '');
-                        const matchedBySku = existingSkuSet.has(raw);
-                        const matchedByModel = modelMap.has(raw);
-                        const matchedProd = products.find((p) =>
-                          p.sku.toUpperCase() === raw ||
-                          (p.model_name && p.model_name.trim().toUpperCase() === raw) ||
-                          (cleanRaw && (p.model_name || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanRaw) ||
-                          (cleanRaw && (p.sku || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === cleanRaw)
-                        );
-                        const isMatched = matchedBySku || matchedByModel || Boolean(matchedProd);
+                      rows: result.rows.map((r, i) => {
+                        const matchedProds = findMatches(r.sku, products);
+                        const isMatched = matchedProds.length > 0;
+                        let targetDisplay = r.sku;
+                        if (matchedProds.length === 1) {
+                          targetDisplay = `${matchedProds[0].model_name} (${matchedProds[0].sku})`;
+                        } else if (matchedProds.length > 1) {
+                          targetDisplay = `${matchedProds.map((p) => p.model_name).join(', ')} (${matchedProds.length} SKUs)`;
+                        }
 
                         return {
                           ...r,
+                          id: i,
                           matched: isMatched,
-                          targetDisplay: matchedProd ? `${matchedProd.model_name} (${matchedProd.sku})` : r.sku,
+                          targetSkus: matchedProds.map((p) => p.sku),
+                          targetDisplay,
                         };
                       }),
                     };
@@ -374,9 +423,9 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                     {importPreview.detected_columns.retail && ` · Retail: "${importPreview.detected_columns.retail}"`}
                   </p>
                 </div>
-                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
+                <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl bg-white">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 sticky top-0">
+                    <thead className="bg-slate-50 sticky top-0 z-10">
                       <tr>
                         <th className="px-3 py-2 font-semibold text-slate-500">Model / SKU</th>
                         <th className="px-3 py-2 font-semibold text-slate-500 text-right">Price</th>
@@ -387,9 +436,46 @@ function SkuSection({ isAdmin }: { isAdmin: boolean }) {
                       {importPreview.rows.slice(0, 50).map((row: any, i: number) => (
                         <tr key={i} className={row.matched ? '' : 'bg-amber-50/50'}>
                           <td className="px-3 py-1.5 font-mono font-medium text-slate-800">
-                            <div>{row.sku}</div>
+                            <div className="font-semibold text-slate-800">{row.sku}</div>
                             {row.targetDisplay && row.targetDisplay !== row.sku && (
-                              <div className="text-[10px] text-slate-400 font-sans font-normal">→ {row.targetDisplay}</div>
+                              <div className="text-[10px] text-emerald-600 font-sans font-medium">→ {row.targetDisplay}</div>
+                            )}
+                            {!row.matched && (
+                              <div className="mt-1">
+                                <select
+                                  aria-label="Map to product"
+                                  className="text-[11px] font-sans bg-white border border-amber-300 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-xs"
+                                  defaultValue=""
+                                  onChange={(e) => {
+                                    const selectedSku = e.target.value;
+                                    if (!selectedSku) return;
+                                    const chosen = products.find((p) => p.sku === selectedSku);
+                                    if (!chosen) return;
+                                    setImportPreview((prev: any) => {
+                                      if (!prev) return prev;
+                                      return {
+                                        ...prev,
+                                        rows: prev.rows.map((item: any, idx: number) => {
+                                          if (idx !== i) return item;
+                                          return {
+                                            ...item,
+                                            matched: true,
+                                            targetSkus: [chosen.sku],
+                                            targetDisplay: `${chosen.model_name} (${chosen.sku})`,
+                                          };
+                                        }),
+                                      };
+                                    });
+                                  }}
+                                >
+                                  <option value="">Map to catalogue product…</option>
+                                  {products.map((p) => (
+                                    <option key={p.sku} value={p.sku}>
+                                      {p.model_name} ({p.sku})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             )}
                           </td>
                           <td className="px-3 py-1.5 font-mono text-slate-600 text-right">
@@ -2097,32 +2183,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Quick Status Key Reference */}
-          <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] p-5 border border-slate-100">
-            <h2 className="text-base font-semibold text-slate-800 mb-3">
-              Status Key
-            </h2>
-            <div className="space-y-2">
-              {[
-                { label: 'In Warehouse', color: 'bg-emerald-100 text-emerald-700' },
-                { label: 'Reserved', color: 'bg-amber-100 text-amber-700' },
-                { label: 'In Transit', color: 'bg-blue-100 text-blue-700' },
-                { label: 'In Branch', color: 'bg-violet-100 text-violet-700' },
-                { label: 'Sold', color: 'bg-teal-100 text-teal-700' },
-                { label: 'Damaged / Repair', color: 'bg-red-100 text-red-700' },
-                { label: 'Pending Serial', color: 'bg-orange-100 text-orange-700' },
-              ].map((s) => (
-                <div key={s.label} className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">{s.label}</span>
-                  <span
-                    className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${s.color}`}
-                  >
-                    ●
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+
         </div>
       </div>
     </div>
