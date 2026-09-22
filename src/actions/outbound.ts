@@ -115,11 +115,22 @@ export async function createOutboundTransaction(data: {
     insertPayload.sold_at = new Date(data.sold_at).toISOString();
   }
 
-  const { data: transaction, error: txnError } = await supabase
+  let { data: transaction, error: txnError } = await supabase
     .from('transactions')
     .insert(insertPayload)
     .select()
     .single();
+
+  if (txnError && txnError.message?.includes('sold_at')) {
+    delete insertPayload.sold_at;
+    const retry = await supabase
+      .from('transactions')
+      .insert(insertPayload)
+      .select()
+      .single();
+    transaction = retry.data;
+    txnError = retry.error;
+  }
 
   if (txnError) {
     return {

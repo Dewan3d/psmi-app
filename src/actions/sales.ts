@@ -29,24 +29,39 @@ export async function getSales(filters?: {
   const supabase = await createClient();
 
   // 1. Fetch outbound transactions (B2B + B2C only)
-  let query = supabase
-    .from('transactions')
-    .select('id, tracking_number, route, customer_name, sales_manager, sold_at, created_at, verified, user_id, notes', { count: 'exact' })
-    .eq('type', 'OUTBOUND')
-    .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
-    .order('created_at', { ascending: false });
+  // Try querying with sold_at; if migration hasn't been run yet, fallback gracefully to query without sold_at
+  const buildQuery = (selectFields: string) => {
+    let q = supabase
+      .from('transactions')
+      .select(selectFields, { count: 'exact' })
+      .eq('type', 'OUTBOUND')
+      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
+      .order('created_at', { ascending: false });
 
-  if (filters?.from_date) query = query.gte('created_at', filters.from_date);
-  if (filters?.to_date) query = query.lte('created_at', filters.to_date);
-  if (filters?.search) {
-    query = query.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%,sales_manager.ilike.%${filters.search}%`);
+    if (filters?.from_date) q = q.gte('created_at', filters.from_date);
+    if (filters?.to_date) q = q.lte('created_at', filters.to_date);
+    if (filters?.search) {
+      q = q.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%,sales_manager.ilike.%${filters.search}%`);
+    }
+
+    const limit = filters?.limit || 50;
+    const offset = filters?.offset || 0;
+    return q.range(offset, offset + limit - 1);
+  };
+
+  let { data: transactions, count, error: txnError } = await buildQuery(
+    'id, tracking_number, route, customer_name, sales_manager, sold_at, created_at, verified, user_id, notes'
+  );
+
+  // If sold_at column doesn't exist yet, retry without it
+  if (txnError && txnError.message?.includes('sold_at')) {
+    const fallbackRes = await buildQuery(
+      'id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes'
+    );
+    transactions = fallbackRes.data;
+    count = fallbackRes.count;
+    txnError = fallbackRes.error;
   }
-
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
-  query = query.range(offset, offset + limit - 1);
-
-  const { data: transactions, count, error: txnError } = await query;
 
   if (txnError) {
     return { data: [], total: 0, error: txnError.message };
