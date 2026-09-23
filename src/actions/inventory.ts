@@ -107,27 +107,46 @@ export async function getUnitsBySku(
 ): Promise<{ data: InventoryUnit[]; error: string | null }> {
   const supabase = await createClient();
 
-  let query = supabase
-    .from('inventory_units')
-    .select('*')
-    .eq('sku', sku)
-    .neq('status', 'SOLD')
-    .order('upload_date', { ascending: true });
+  const PAGE_SIZE = 1000;
+  let allUnits: InventoryUnit[] = [];
+  let from = 0;
+  let hasMore = true;
 
-  if (filters?.status) {
-    query = query.eq('status', filters.status);
+  while (hasMore) {
+    let query = supabase
+      .from('inventory_units')
+      .select('*')
+      .eq('sku', sku)
+      .neq('status', 'SOLD')
+      .order('upload_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+    if (filters?.location_id) {
+      query = query.eq('location_id', filters.location_id);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { data: allUnits, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      hasMore = false;
+    } else {
+      allUnits = allUnits.concat(data as InventoryUnit[]);
+      if (data.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        from += PAGE_SIZE;
+      }
+    }
   }
-  if (filters?.location_id) {
-    query = query.eq('location_id', filters.location_id);
-  }
 
-  const { data, error } = await query;
-
-  if (error) {
-    return { data: [], error: error.message };
-  }
-
-  return { data: data || [], error: null };
+  return { data: allUnits, error: null };
 }
 
 export async function getUnitsByLocation(
@@ -139,26 +158,45 @@ export async function getUnitsByLocation(
 ): Promise<{ data: InventoryUnit[]; error: string | null }> {
   const supabase = await createClient();
 
-  let query = supabase
-    .from('inventory_units')
-    .select('*')
-    .eq('location_id', locationId)
-    .order('upload_date', { ascending: true });
+  const PAGE_SIZE = 1000;
+  let allUnits: InventoryUnit[] = [];
+  let from = 0;
+  let hasMore = true;
 
-  if (filters?.status) {
-    query = query.eq('status', filters.status);
+  while (hasMore) {
+    let query = supabase
+      .from('inventory_units')
+      .select('*')
+      .eq('location_id', locationId)
+      .order('upload_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+    if (filters?.sku) {
+      query = query.eq('sku', filters.sku);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return { data: allUnits, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      hasMore = false;
+    } else {
+      allUnits = allUnits.concat(data as InventoryUnit[]);
+      if (data.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        from += PAGE_SIZE;
+      }
+    }
   }
-  if (filters?.sku) {
-    query = query.eq('sku', filters.sku);
-  }
 
-  const { data, error } = await query;
-
-  if (error) {
-    return { data: [], error: error.message };
-  }
-
-  return { data: data || [], error: null };
+  return { data: allUnits, error: null };
 }
 
 export async function getStockSummary(): Promise<{
