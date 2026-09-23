@@ -50,6 +50,16 @@ export function ModalWrapper({
     }
   }, [isOpen]);
 
+  // Prevent background scrolling while modal is open
+  useEffect(() => {
+    if (!shouldRender) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [shouldRender]);
+
   // Handle ESC key press
   useEffect(() => {
     if (!isOpen) return;

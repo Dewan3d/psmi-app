@@ -750,7 +750,7 @@ function NewInboundModal({
         title="Confirm Inbound Receipt"
         message={
           <div className="space-y-2">
-            <p>Are you sure you want to add this inbound shipment to the system?</p>
+            <p className="text-slate-600 font-medium">Review inbound shipment details:</p>
             <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
               <p>
                 <strong className="text-slate-900">Destination:</strong>{' '}
@@ -1041,7 +1041,7 @@ export default function InboundPage() {
               setSearchQuery(e.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Search receipt by Model, SKU, Tracking #, Location, Receipt ID..."
+            placeholder="Search by SKU, tracking, or location..."
             className="w-full pl-10 pr-9 py-2 text-sm bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-800 placeholder-slate-400"
           />
           {searchQuery && (
@@ -1131,16 +1131,30 @@ export default function InboundPage() {
         const totalPending = transactions.reduce((sum, t) => sum + t.pending_items, 0);
         if (totalPending === 0) return null;
         return (
-          <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl">
-            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-amber-800">
-                {totalPending} units awaiting serial number assignment
-              </p>
-              <p className="text-xs text-amber-600 mt-0.5">
-                Click on a receipt below to assign serial numbers to pending slots.
-              </p>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">
+                  {totalPending} units awaiting serial assignment
+                </p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  Select a receipt below to assign serial numbers.
+                </p>
+              </div>
             </div>
+            {statusFilter !== 'PENDING' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('PENDING');
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-1 text-xs font-semibold text-amber-800 bg-amber-200/70 hover:bg-amber-200 rounded-lg transition-colors shrink-0"
+              >
+                Filter Pending
+              </button>
+            )}
           </div>
         );
       })()}

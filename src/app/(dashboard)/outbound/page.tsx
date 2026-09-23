@@ -939,9 +939,9 @@ function NewOutboundModal({
                           setSku(val);
                           setError(null);
                         }}
-                        placeholder="Click to search product model name, SKU, or category..."
-                        searchPlaceholder="Search product by model name or SKU..."
-                        emptyText="No matching products found in system"
+                        placeholder="Search product or SKU..."
+                        searchPlaceholder="Search product or SKU..."
+                        emptyText="No matching products found"
                       />
 
                       {/* Product Allocation Controls */}
@@ -1646,7 +1646,7 @@ function NewOutboundModal({
                 }}
                 className="px-5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
               >
-                Next: Pricing & Review ({selectedSerials.length}) →
+                Review ({selectedSerials.length}) →
               </button>
             )}
             {step === 3 && (
@@ -1672,7 +1672,7 @@ function NewOutboundModal({
         title="Confirm Outbound Dispatch"
         message={
           <div className="space-y-2">
-            <p>Are you sure you want to create this outbound dispatch order?</p>
+            <p className="text-slate-600 font-medium">Review dispatch order details:</p>
             <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
               <p>
                 <strong className="text-slate-900">Route:</strong> {routeConfig[route]?.label || route}

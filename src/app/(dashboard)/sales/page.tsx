@@ -631,7 +631,7 @@ function EditPaymentModal({
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Customer paid initial ₦30k transfer on Sept 23; 3 units released. Balance of ₦70k due on Oct 15 before remaining 7 units can be dispatched."
+            placeholder="e.g. ₦30k paid, 3 units released. Balance due Oct 15."
             className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white resize-none"
           />
         </div>
@@ -713,7 +713,7 @@ function SaleNotesSection({
             rows={3}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Record agreement terms, installment schedules, customer notes, or delivery instructions..."
+            placeholder="e.g. Installment schedule, delivery terms, or notes..."
             className="w-full p-2.5 text-xs text-slate-800 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-indigo-50/10 resize-none"
             autoFocus
           />
@@ -872,16 +872,16 @@ function SaleRow({
       </tr>
 
       {/* Expanded Order Overview & Details with smooth accordion transition */}
-      {expanded && (
-        <tr className="bg-slate-50/50 animate-accordion-down">
-          <td colSpan={9} className="px-4 py-4">
-            <div className="space-y-4">
+      <tr className="bg-slate-50/50">
+        <td colSpan={9} className="p-0">
+          <div className={`accordion-grid ${expanded ? 'accordion-open' : ''}`}>
+            <div className="accordion-inner p-4 space-y-4">
               {/* ── 1. Order Overview Top Cards ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {/* Order & Customer Card */}
                 <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs flex flex-col justify-between">
                   <div className="space-y-1">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer & Sales Rep</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer & Rep</p>
                     <p className="text-sm font-bold text-slate-900 truncate">
                       {sale.customer_name || 'No Customer Specified'}
                     </p>
@@ -899,7 +899,7 @@ function SaleRow({
                 <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Overview</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Status</p>
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${paymentStatusConfig.color}`}>
                         {paymentStatusConfig.label}
                       </span>
@@ -1005,11 +1005,11 @@ function SaleRow({
                       <div className="flex items-center gap-2">
                         <Package className="w-3.5 h-3.5 text-slate-500" />
                         <span className="text-xs font-bold text-slate-700">
-                          Released Devices ({sale.items.length} item{sale.items.length > 1 ? 's' : ''})
+                          Dispatched Units ({sale.items.length} item{sale.items.length > 1 ? 's' : ''})
                         </span>
                       </div>
                       <span className="text-[11px] font-mono text-slate-500">
-                        Released Subtotal: <strong className="text-slate-800">{formatNaira(sale.total_sale)}</strong>
+                        Dispatched Subtotal: <strong className="text-slate-800">{formatNaira(sale.total_sale)}</strong>
                       </span>
                     </div>
                     <table className="w-full text-left">
@@ -1047,9 +1047,9 @@ function SaleRow({
                 </div>
               )}
             </div>
-          </td>
-        </tr>
-      )}
+          </div>
+        </td>
+      </tr>
 
       {/* Admin Payment Modal */}
       {isAdmin && isPaymentModalOpen && (
@@ -1272,7 +1272,7 @@ export default function SalesPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search customer, sales manager, or tracking #..."
+            placeholder="Search customer, rep, or tracking #..."
             className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all shadow-sm"
           />
           {searchQuery && (
