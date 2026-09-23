@@ -37,10 +37,14 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  CalendarDays,
+  Sparkles,
 } from 'lucide-react';
 import {
   getSales,
   getSalesSummaryStats,
+  getSalesTimeSeries,
+  SalesTimeSeriesPoint,
   updateSalePrice,
   updateSaleDate,
   batchUpdateSalePrices,
@@ -53,6 +57,7 @@ import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SaleRecord } from '@/lib/types/database';
 import { useUser } from '../components/user-context';
 import { ModalWrapper } from '../components/modal-wrapper';
+import SalesTrendChart from './components/sales-trend-chart';
 
 // ── Route badge config ────────────────────────────────────────
 const routeBadge: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -60,34 +65,127 @@ const routeBadge: Record<string, { label: string; color: string; icon: React.Rea
   B2C: { label: 'B2C', color: 'bg-emerald-100 text-emerald-700', icon: <User className="w-3 h-3" /> },
 };
 
-// ── Date range presets ────────────────────────────────────────
-type DatePreset = 'today' | '7d' | '30d' | '90d' | 'all';
-function getDateRange(preset: DatePreset): { from?: string; to?: string } {
+// ── Precise Date Range & Preset Definitions ───────────────────
+export type FilterScope = 'this_week' | 'this_month' | 'custom_date' | 'today' | '7d' | '30d' | 'all';
+
+export function getScopeDateRange(
+  scope: FilterScope,
+  customFrom?: string,
+  customTo?: string
+): { from?: string; to?: string; filter_mode: 'week' | 'month' | 'today' | 'date_range' | 'preset'; title: string } {
   const now = new Date();
-  const to = now.toISOString();
-  switch (preset) {
-    case 'today': {
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      return { from: start.toISOString(), to };
+
+  switch (scope) {
+    case 'this_week': {
+      // The week ALWAYS starts on Sunday
+      const currentDay = now.getDay(); // 0 is Sunday
+      const sunday = new Date(now);
+      sunday.setDate(now.getDate() - currentDay);
+      sunday.setHours(0, 0, 0, 0);
+
+      const saturday = new Date(sunday);
+      saturday.setDate(sunday.getDate() + 6);
+      saturday.setHours(23, 59, 59, 999);
+
+      const sunLabel = sunday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      const satLabel = saturday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
+      return {
+        from: sunday.toISOString(),
+        to: saturday.toISOString(),
+        filter_mode: 'week',
+        title: `This Week (${sunLabel} – ${satLabel})`,
+      };
     }
+
+    case 'this_month': {
+      // 1st of the current month to the last day of the current month
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+      return {
+        from: startOfMonth.toISOString(),
+        to: endOfMonth.toISOString(),
+        filter_mode: 'month',
+        title: `This Month (${monthName})`,
+      };
+    }
+
+    case 'today': {
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(now);
+      endOfDay.setHours(23, 59, 59, 999);
+      return {
+        from: startOfDay.toISOString(),
+        to: endOfDay.toISOString(),
+        filter_mode: 'today',
+        title: 'Today',
+      };
+    }
+
+    case 'custom_date': {
+      if (customFrom && customTo) {
+        const start = new Date(customFrom);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(customTo);
+        end.setHours(23, 59, 59, 999);
+        const fLabel = start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        const tLabel = end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        return {
+          from: start.toISOString(),
+          to: end.toISOString(),
+          filter_mode: 'date_range',
+          title: `${fLabel} – ${tLabel}`,
+        };
+      }
+      if (customFrom) {
+        const start = new Date(customFrom);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(customFrom);
+        end.setHours(23, 59, 59, 999);
+        return {
+          from: start.toISOString(),
+          to: end.toISOString(),
+          filter_mode: 'date_range',
+          title: start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        };
+      }
+      return {
+        filter_mode: 'date_range',
+        title: 'Custom Date Range',
+      };
+    }
+
     case '7d': {
       const start = new Date(now);
       start.setDate(start.getDate() - 7);
-      return { from: start.toISOString(), to };
+      return {
+        from: start.toISOString(),
+        to: now.toISOString(),
+        filter_mode: 'preset',
+        title: 'Last 7 Days',
+      };
     }
+
     case '30d': {
       const start = new Date(now);
       start.setDate(start.getDate() - 30);
-      return { from: start.toISOString(), to };
+      return {
+        from: start.toISOString(),
+        to: now.toISOString(),
+        filter_mode: 'preset',
+        title: 'Last 30 Days',
+      };
     }
-    case '90d': {
-      const start = new Date(now);
-      start.setDate(start.getDate() - 90);
-      return { from: start.toISOString(), to };
-    }
+
     case 'all':
-      return {};
+    default:
+      return {
+        filter_mode: 'preset',
+        title: 'All Time',
+      };
   }
 }
 
@@ -714,7 +812,7 @@ function SaleNotesSection({
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             placeholder="e.g. Installment schedule, delivery terms, or notes..."
-            className="w-full p-2.5 text-xs text-slate-800 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-indigo-50/10 resize-none"
+            className="w-full p-2.5 text-xs text-slate-800 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 bg-white resize-none"
             autoFocus
           />
           {error && <p className="text-[10px] text-rose-500">{error}</p>}
@@ -823,11 +921,37 @@ function SaleRow({
             onSaved={onPriceUpdated}
           />
         </td>
+
+        {/* ── Products Sold (Replaces Tracking Number) ─────────── */}
         <td className="px-4 py-3.5">
-          <span className="text-sm font-mono font-medium text-slate-800">
-            {sale.tracking_number || '—'}
-          </span>
+          {sale.items.length === 0 ? (
+            <span className="text-xs text-slate-400 italic">
+              {unitsAgreed > 0 ? `${unitsAgreed} ordered (pending allocation)` : 'No products'}
+            </span>
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap max-w-[260px]">
+              {Object.values(skuGroups).slice(0, 2).map((grp) => (
+                <span
+                  key={grp.sku}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200/80"
+                  title={`${grp.model_name} (${grp.sku}) — ${grp.items.length} unit(s)`}
+                >
+                  <span className="font-semibold text-indigo-600">{grp.items.length}×</span>
+                  <span className="truncate max-w-[120px]">{grp.model_name}</span>
+                </span>
+              ))}
+              {Object.values(skuGroups).length > 2 && (
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 cursor-help"
+                  title={Object.values(skuGroups).slice(2).map((g) => `${g.items.length}× ${g.model_name}`).join(', ')}
+                >
+                  +{Object.values(skuGroups).length - 2} more
+                </span>
+              )}
+            </div>
+          )}
         </td>
+
         <td className="px-4 py-3.5">
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${badge.color}`}>
             {badge.icon}
@@ -948,7 +1072,7 @@ function SaleRow({
                       )}
 
                       {/* Admin-Only Modify Device Prices Toggle */}
-                      {isAdmin && (
+                      {isAdmin && Object.keys(skuGroups).length > 0 && (
                         <button
                           type="button"
                           onClick={() => setShowDevicePrices(!showDevicePrices)}
@@ -959,7 +1083,7 @@ function SaleRow({
                           }`}
                         >
                           <Sliders className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{showDevicePrices ? 'Hide Device Prices' : 'Modify Device Prices'}</span>
+                          <span>{showDevicePrices ? 'Close Batch Price Editor' : 'Quick Batch Price Adjuster'}</span>
                           <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 ml-auto font-mono">
                             Admin
                           </span>
@@ -975,17 +1099,89 @@ function SaleRow({
                 </div>
               </div>
 
-              {/* ── 2. Dedicated Notes & Terms Section ── */}
+              {/* ── 2. Products Sold in this Sale (Clean SKU & Amount Summary) ── */}
+              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white shadow-xs">
+                <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      Products Sold in this Sale ({Object.keys(skuGroups).length} product{Object.keys(skuGroups).length !== 1 ? 's' : ''}, {sale.items.length} unit{sale.items.length !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-slate-700">
+                    Total Amount: <strong className="text-indigo-700">{formatNaira(sale.total_sale)}</strong>
+                  </span>
+                </div>
+
+                {Object.keys(skuGroups).length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400">
+                    No physical units have been dispatched yet for this sale order.
+                  </div>
+                ) : (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                        <th className="px-4 py-2.5">Product Model</th>
+                        <th className="px-4 py-2.5">SKU Code</th>
+                        <th className="px-4 py-2.5 text-center">Quantity Sold</th>
+                        <th className="px-4 py-2.5 text-right">Avg Unit Price</th>
+                        <th className="px-4 py-2.5 text-right">Total Amount Sold (₦)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Object.values(skuGroups).map((grp) => {
+                        const skuTotalAmount = grp.items.reduce((sum, i) => sum + (i.sale_price || 0), 0);
+                        const avgUnitPrice = grp.items.length > 0 ? skuTotalAmount / grp.items.length : 0;
+                        const hasUnpriced = grp.items.some((i) => i.sale_price == null || i.sale_price === 0);
+
+                        return (
+                          <tr key={grp.sku} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-bold text-slate-800 block">
+                                {grp.model_name}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-mono font-medium text-slate-600 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200/60">
+                                {grp.sku}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                {grp.items.length} {grp.items.length === 1 ? 'unit' : 'units'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="text-xs font-mono text-slate-700">
+                                {formatNaira(avgUnitPrice)}
+                              </span>
+                              {hasUnpriced && (
+                                <span className="block text-[10px] text-amber-600 font-medium">⚠️ Unpriced unit</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="text-xs font-mono font-bold text-slate-900">
+                                {formatNaira(skuTotalAmount)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* ── 3. Dedicated Notes & Terms Section ── */}
               <SaleNotesSection sale={sale} onSaved={onPriceUpdated} />
 
-              {/* ── 3. Released Devices Table & Batch Price Adjuster (ADMIN ONLY & ON-DEMAND) ── */}
-              {isAdmin && showDevicePrices && (
+              {/* ── 4. Admin Batch Price Adjuster (ON-DEMAND) ── */}
+              {isAdmin && showDevicePrices && Object.keys(skuGroups).length > 0 && (
                 <div className="space-y-3 pt-1 animate-in fade-in-50 duration-150">
-                  {/* Batch price editor per SKU */}
                   <div className="p-3.5 bg-indigo-50/40 border border-indigo-100 rounded-xl space-y-2.5">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-slate-800">Quick Batch Price Update by Model / SKU:</p>
-                      <span className="text-[10px] text-indigo-600 font-medium">Applies to released units below</span>
+                      <span className="text-[10px] text-indigo-600 font-medium">Updates all units for that SKU in this transaction</span>
                     </div>
                     {Object.values(skuGroups).map((group) => (
                       <SkuBatchPriceEditor
@@ -997,52 +1193,6 @@ function SaleRow({
                         onSaved={onPriceUpdated}
                       />
                     ))}
-                  </div>
-
-                  {/* Released Items List Table */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                    <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Package className="w-3.5 h-3.5 text-slate-500" />
-                        <span className="text-xs font-bold text-slate-700">
-                          Dispatched Units ({sale.items.length} item{sale.items.length > 1 ? 's' : ''})
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-mono text-slate-500">
-                        Dispatched Subtotal: <strong className="text-slate-800">{formatNaira(sale.total_sale)}</strong>
-                      </span>
-                    </div>
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                          <th className="px-4 py-2">Serial Number</th>
-                          <th className="px-4 py-2">SKU</th>
-                          <th className="px-4 py-2">Model</th>
-                          <th className="px-4 py-2 text-right">Sale Price</th>
-                          <th className="px-4 py-2 text-right">Cost Price</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sale.items.map((item) => (
-                          <tr key={item.serial_number} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                            <td className="px-4 py-2 text-xs font-mono text-slate-800">{item.serial_number}</td>
-                            <td className="px-4 py-2 text-xs font-mono text-slate-600">{item.sku}</td>
-                            <td className="px-4 py-2 text-xs text-slate-600">{item.model_name}</td>
-                            <td className="px-4 py-2 text-right">
-                              <InlinePriceEditor
-                                transactionId={sale.transaction_id}
-                                serialNumber={item.serial_number}
-                                currentPrice={item.sale_price}
-                                onSaved={onPriceUpdated}
-                              />
-                            </td>
-                            <td className="px-4 py-2 text-xs font-mono text-slate-500 text-right">
-                              {formatNaira(item.cost_price)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </div>
                 </div>
               )}
@@ -1077,45 +1227,91 @@ export default function SalesPage() {
     cash_collected: number;
     balance_due: number;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [datePreset, setDatePreset] = useState<DatePreset>('30d');
+
+  // Time Series Chart State
+  const [chartData, setChartData] = useState<SalesTimeSeriesPoint[]>([]);
+  const [chartMeta, setChartMeta] = useState<{
+    period_total: number;
+    period_units: number;
+    period_txns: number;
+    average_per_bucket: number;
+    peak_bucket: { label: string; amount: number } | null;
+  }>({
+    period_total: 0,
+    period_units: 0,
+    period_txns: 0,
+    average_per_bucket: 0,
+    peak_bucket: null,
+  });
+  const [chartLoading, setChartLoading] = useState(true);
+
+  // Filter States
+  const [filterScope, setFilterScope] = useState<FilterScope>('this_week');
+  const [customFromDate, setCustomFromDate] = useState<string>('');
+  const [customToDate, setCustomToDate] = useState<string>('');
   const [routeFilter, setRouteFilter] = useState<'all' | 'B2B' | 'B2C'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [exportingFormat, setExportingFormat] = useState<'csv' | 'xlsx' | null>(null);
   const ITEMS_PER_PAGE = 20;
 
+  const currentScopeConfig = getScopeDateRange(filterScope, customFromDate, customToDate);
+
   async function fetchData() {
     setLoading(true);
-    const range = getDateRange(datePreset);
+    setChartLoading(true);
+
+    const range = getScopeDateRange(filterScope, customFromDate, customToDate);
     const route = routeFilter !== 'all' ? routeFilter : undefined;
 
-    const [salesResult, statsResult] = await Promise.all([
-      getSales({
-        from_date: range.from,
-        to_date: range.to,
-        route,
-        search: searchQuery || undefined,
-        limit: ITEMS_PER_PAGE,
-        offset: (currentPage - 1) * ITEMS_PER_PAGE,
-      }),
-      getSalesSummaryStats({
-        from_date: range.from,
-        to_date: range.to,
-        route,
-      }),
-    ]);
+    try {
+      const [salesResult, statsResult, chartResult] = await Promise.all([
+        getSales({
+          from_date: range.from,
+          to_date: range.to,
+          route,
+          search: searchQuery || undefined,
+          limit: ITEMS_PER_PAGE,
+          offset: (currentPage - 1) * ITEMS_PER_PAGE,
+        }),
+        getSalesSummaryStats({
+          from_date: range.from,
+          to_date: range.to,
+          route,
+        }),
+        getSalesTimeSeries({
+          from_date: range.from,
+          to_date: range.to,
+          route,
+          filter_mode: range.filter_mode,
+        }),
+      ]);
 
-    setSales(salesResult.data);
-    setTotalCount(salesResult.total);
-    setStats(statsResult.data);
-    setLoading(false);
+      setSales(salesResult.data);
+      setTotalCount(salesResult.total);
+      setStats(statsResult.data);
+
+      setChartData(chartResult.data);
+      setChartMeta({
+        period_total: chartResult.period_total,
+        period_units: chartResult.period_units,
+        period_txns: chartResult.period_txns,
+        average_per_bucket: chartResult.average_per_bucket,
+        peak_bucket: chartResult.peak_bucket,
+      });
+    } catch (err) {
+      console.error('Failed to fetch sales data:', err);
+    } finally {
+      setLoading(false);
+      setChartLoading(false);
+    }
   }
 
   useEffect(() => {
     fetchData();
-  }, [datePreset, routeFilter, currentPage]);
+  }, [filterScope, customFromDate, customToDate, routeFilter, currentPage]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -1129,7 +1325,7 @@ export default function SalesPage() {
     if (exportingFormat) return;
     setExportingFormat(format);
     try {
-      const range = getDateRange(datePreset);
+      const range = getScopeDateRange(filterScope, customFromDate, customToDate);
       const route = routeFilter !== 'all' ? routeFilter : undefined;
       const search = searchQuery || undefined;
       const dateStr = new Date().toISOString().slice(0, 10);
@@ -1146,7 +1342,7 @@ export default function SalesPage() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `psmi-sales-${datePreset}-${dateStr}.csv`;
+          a.download = `psmi-sales-${filterScope}-${dateStr}.csv`;
           a.click();
           URL.revokeObjectURL(url);
         }
@@ -1170,7 +1366,7 @@ export default function SalesPage() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `psmi-sales-${datePreset}-${dateStr}.xlsx`;
+          a.download = `psmi-sales-${filterScope}-${dateStr}.xlsx`;
           a.click();
           URL.revokeObjectURL(url);
         }
@@ -1183,22 +1379,29 @@ export default function SalesPage() {
   }
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE) || 1;
-  const datePresets: { key: DatePreset; label: string }[] = [
-    { key: 'today', label: 'Today' },
+
+  // Filter Preset Definitions
+  const primaryFilters: { key: FilterScope; label: string; icon?: React.ReactNode; hint: string }[] = [
+    { key: 'this_week', label: 'This Week', hint: 'Starts on Sunday' },
+    { key: 'this_month', label: 'This Month', hint: 'Full calendar month' },
+    { key: 'today', label: 'Today', hint: 'Pacing for current day' },
+    { key: 'custom_date', label: 'Date Filter', hint: 'Pick specific date or range' },
+  ];
+
+  const secondaryPresets: { key: FilterScope; label: string }[] = [
     { key: '7d', label: '7 Days' },
     { key: '30d', label: '30 Days' },
-    { key: '90d', label: '90 Days' },
     { key: 'all', label: 'All Time' },
   ];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* ── Header ──────────────────────────────────────────── */}
+      {/* ── Page Header ──────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Sales</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Track revenue, profit margins, and sale prices across all B2B and B2C transactions.
+            Track revenue velocity, analyze products sold, and monitor installment balances.
           </p>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
@@ -1231,62 +1434,168 @@ export default function SalesPage() {
         </div>
       </div>
 
-      {/* ── Filters Row ─────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        {/* Date presets */}
-        <div className="flex items-center gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
-          {datePresets.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => { setDatePreset(p.key); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${datePreset === p.key
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                }`}
-            >
-              {p.label}
-            </button>
-          ))}
+      {/* ── Filters & Controls Bar ────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Main Scope Tabs */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline">
+              Period:
+            </span>
+            <div className="flex items-center p-1 bg-slate-100/90 rounded-xl gap-1">
+              {primaryFilters.map((tab) => {
+                const isActive = filterScope === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      setFilterScope(tab.key);
+                      setCurrentPage(1);
+                    }}
+                    title={tab.hint}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-white text-indigo-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quick Presets Dropdown/Pills */}
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-1 rounded-xl">
+              {secondaryPresets.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => {
+                    setFilterScope(p.key);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                    filterScope === p.key
+                      ? 'bg-slate-800 text-white font-semibold shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-white'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: Route & Search */}
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            {/* Route filter */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              {(['all', 'B2B', 'B2C'] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    setRouteFilter(r);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    routeFilter === r
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {r === 'all' ? 'All' : r}
+                </button>
+              ))}
+            </div>
+
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search customer, rep, model, SKU..."
+                className="w-full pl-9 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 focus:bg-white transition-all shadow-xs"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Route filter */}
-        <div className="flex items-center gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
-          {(['all', 'B2B', 'B2C'] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => { setRouteFilter(r); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${routeFilter === r
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
-                }`}
-            >
-              {r === 'all' ? 'All Routes' : r}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search customer, rep, or tracking #..."
-            className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all shadow-sm"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        {/* Custom Date Range Picker Bar (Shown when Date Filter is selected) */}
+        {filterScope === 'custom_date' && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 animate-in fade-in-50 duration-150">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+              <CalendarDays className="w-4 h-4 text-indigo-600" />
+              <span>Filter by Date Range:</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-400">From:</span>
+                <input
+                  type="date"
+                  value={customFromDate}
+                  onChange={(e) => {
+                    setCustomFromDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="px-2.5 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-400">To:</span>
+                <input
+                  type="date"
+                  value={customToDate}
+                  onChange={(e) => {
+                    setCustomToDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="px-2.5 py-1 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                />
+              </div>
+              {(customFromDate || customToDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomFromDate('');
+                    setCustomToDate('');
+                  }}
+                  className="text-xs text-rose-600 hover:underline px-2 py-1 cursor-pointer"
+                >
+                  Clear Date
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── KPI Cards ───────────────────────────────────────── */}
+      {/* ── Interactive Sales Amount vs. Time Chart (Positioned Directly Under Filters) ── */}
+      <SalesTrendChart
+        data={chartData}
+        periodTotal={chartMeta.period_total}
+        periodUnits={chartMeta.period_units}
+        periodTxns={chartMeta.period_txns}
+        averagePerBucket={chartMeta.average_per_bucket}
+        peakBucket={chartMeta.peak_bucket}
+        filterMode={currentScopeConfig.filter_mode}
+        periodTitle={currentScopeConfig.title}
+        loading={chartLoading}
+      />
+
+      {/* ── KPI Summary Cards ─────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Revenue"
@@ -1318,7 +1627,7 @@ export default function SalesPage() {
         />
       </div>
 
-      {/* ── Sales Table ─────────────────────────────────────── */}
+      {/* ── Sales Transactions Table ──────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-slate-100 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -1327,7 +1636,7 @@ export default function SalesPage() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-800">Sales Transactions</h2>
-              <p className="text-xs text-slate-400">{totalCount} sale(s) found</p>
+              <p className="text-xs text-slate-400">{totalCount} sale(s) found in {currentScopeConfig.title}</p>
             </div>
           </div>
         </div>
@@ -1348,7 +1657,7 @@ export default function SalesPage() {
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200">
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Tracking #</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Products Sold</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Route</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
                     <th className="px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Sales Manager</th>
@@ -1380,14 +1689,14 @@ export default function SalesPage() {
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition-colors"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition-colors cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition-colors"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition-colors cursor-pointer"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>

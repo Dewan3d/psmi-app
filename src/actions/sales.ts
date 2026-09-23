@@ -343,6 +343,322 @@ export async function getSalesSummaryStats(filters?: {
   };
 }
 
+// ── Time-series data bucket for Sales vs Time Chart ──────────
+export interface SalesTimeSeriesPoint {
+  key: string;            // unique key (e.g. "2026-09-20", "Sun", "Day 1")
+  label: string;          // Primary X-axis label ("Sun 20", "Sep 20", "08:00")
+  shortLabel: string;     // Compact X-axis label ("Sun", "20", "08h")
+  subLabel?: string;      // Supporting contextual note ("Today", "Upcoming", etc.)
+  dateStr: string;        // ISO date representation YYYY-MM-DD
+  amount: number;         // Total sales amount in Naira
+  unitsCount: number;     // Units of products sold
+  txnCount: number;       // Number of sales transactions
+  isCurrent?: boolean;    // Is this point today / current period
+  isFuture?: boolean;     // Is this point in the future (for upcoming week days)
+  topProduct?: string;    // Top selling product model in this slot
+}
+
+export async function getSalesTimeSeries(params: {
+  from_date?: string;
+  to_date?: string;
+  route?: 'B2B' | 'B2C';
+  filter_mode: 'week' | 'month' | 'today' | 'date_range' | 'preset';
+}): Promise<{
+  data: SalesTimeSeriesPoint[];
+  period_total: number;
+  period_units: number;
+  period_txns: number;
+  average_per_bucket: number;
+  peak_bucket: { label: string; amount: number } | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  // 1. Query outbound verified transactions in the range
+  let query = supabase
+    .from('transactions')
+    .select('id, created_at, sold_at, amount_paid, total_order_amount')
+    .eq('type', 'OUTBOUND')
+    .eq('verified', true)
+    .in('route', params.route ? [params.route] : ['B2B', 'B2C'])
+    .order('created_at', { ascending: true });
+
+  if (params.from_date) query = query.gte('created_at', params.from_date);
+  if (params.to_date) query = query.lte('created_at', params.to_date);
+
+  let { data: transactions, error: txnError } = await query;
+
+  // Fallback if extended fields fail
+  if (txnError && (txnError.message?.includes('amount_paid') || txnError.message?.includes('total_order_amount') || txnError.message?.includes('sold_at'))) {
+    let fallbackQuery = supabase
+      .from('transactions')
+      .select('id, created_at')
+      .eq('type', 'OUTBOUND')
+      .eq('verified', true)
+      .in('route', params.route ? [params.route] : ['B2B', 'B2C'])
+      .order('created_at', { ascending: true });
+    if (params.from_date) fallbackQuery = fallbackQuery.gte('created_at', params.from_date);
+    if (params.to_date) fallbackQuery = fallbackQuery.lte('created_at', params.to_date);
+    const fallbackRes = await fallbackQuery;
+    transactions = fallbackRes.data as any;
+    txnError = fallbackRes.error;
+  }
+
+  if (txnError) {
+    return {
+      data: [],
+      period_total: 0,
+      period_units: 0,
+      period_txns: 0,
+      average_per_bucket: 0,
+      peak_bucket: null,
+      error: txnError.message,
+    };
+  }
+
+  const txns = transactions || [];
+  const txnIds = txns.map((t: any) => t.id);
+
+  // 2. Fetch items for price and product details
+  let items: any[] = [];
+  if (txnIds.length > 0) {
+    const { data: rawItems } = await supabase
+      .from('transaction_items')
+      .select('transaction_id, serial_number, sale_price')
+      .in('transaction_id', txnIds);
+    items = rawItems || [];
+  }
+
+  // Map serial numbers to SKU and products
+  const serialNumbers = items.map((i) => i.serial_number);
+  let unitMap = new Map<string, string>(); // serial -> sku
+  let productMap = new Map<string, string>(); // sku -> model_name
+  if (serialNumbers.length > 0) {
+    const { data: units } = await supabase
+      .from('inventory_units')
+      .select('serial_number, sku')
+      .in('serial_number', serialNumbers);
+    (units || []).forEach((u: any) => unitMap.set(u.serial_number, u.sku));
+
+    const skus = [...new Set(Array.from(unitMap.values()))];
+    if (skus.length > 0) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('sku, model_name')
+        .in('sku', skus);
+      (products || []).forEach((p: any) => productMap.set(p.sku, p.model_name));
+    }
+  }
+
+  // Group items & calculate deal total per transaction
+  const itemsByTxn = new Map<string, any[]>();
+  for (const item of items) {
+    const arr = itemsByTxn.get(item.transaction_id) || [];
+    arr.push(item);
+    itemsByTxn.set(item.transaction_id, arr);
+  }
+
+  // 3. Build time buckets depending on filter_mode
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  let buckets: SalesTimeSeriesPoint[] = [];
+
+  if (params.filter_mode === 'week') {
+    // Week ALWAYS starts on Sunday
+    const currentDay = now.getDay(); // 0 is Sunday, 6 is Saturday
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - currentDay);
+    sunday.setHours(0, 0, 0, 0);
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(sunday);
+      dayDate.setDate(sunday.getDate() + i);
+      const iso = dayDate.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      const isFuture = dayDate > now && !isToday;
+
+      buckets.push({
+        key: iso,
+        label: `${dayNames[i]} (${dayDate.getDate()})`,
+        shortLabel: dayNames[i],
+        subLabel: isToday ? 'Today' : (isFuture ? 'Upcoming' : undefined),
+        dateStr: iso,
+        amount: 0,
+        unitsCount: 0,
+        txnCount: 0,
+        isCurrent: isToday,
+        isFuture,
+      });
+    }
+  } else if (params.filter_mode === 'month') {
+    // Current calendar month (1st to last day of month)
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[month];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayDate = new Date(year, month, d);
+      const iso = dayDate.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      const isFuture = dayDate > now && !isToday;
+
+      buckets.push({
+        key: iso,
+        label: `${monthName} ${d}`,
+        shortLabel: `${d}`,
+        subLabel: isToday ? 'Today' : (isFuture ? 'Upcoming' : undefined),
+        dateStr: iso,
+        amount: 0,
+        unitsCount: 0,
+        txnCount: 0,
+        isCurrent: isToday,
+        isFuture,
+      });
+    }
+  } else if (params.filter_mode === 'today') {
+    // Today by 2-hour or 4-hour slots
+    const hours = [
+      { start: 0, end: 4, label: '12am - 4am', short: '00-04' },
+      { start: 4, end: 8, label: '4am - 8am', short: '04-08' },
+      { start: 8, end: 12, label: '8am - 12pm', short: '08-12' },
+      { start: 12, end: 16, label: '12pm - 4pm', short: '12-16' },
+      { start: 16, end: 20, label: '4pm - 8pm', short: '16-20' },
+      { start: 20, end: 24, label: '8pm - 12am', short: '20-24' },
+    ];
+    const currentHour = now.getHours();
+    for (const h of hours) {
+      const isCurrent = currentHour >= h.start && currentHour < h.end;
+      const isFuture = currentHour < h.start;
+      buckets.push({
+        key: `hour_${h.start}`,
+        label: h.label,
+        shortLabel: h.short,
+        subLabel: isCurrent ? 'Now' : (isFuture ? 'Upcoming' : undefined),
+        dateStr: todayIso,
+        amount: 0,
+        unitsCount: 0,
+        txnCount: 0,
+        isCurrent,
+        isFuture,
+      });
+    }
+  } else {
+    // Custom date range or rolling preset (7d, 30d, 90d, all)
+    // Generate daily buckets across the span
+    const from = params.from_date ? new Date(params.from_date) : new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+    const to = params.to_date ? new Date(params.to_date) : now;
+    
+    // Normalize to dates
+    const startDay = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const endDay = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+    const diffDays = Math.max(1, Math.min(60, Math.round((endDay.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000)) + 1));
+
+    for (let i = 0; i < diffDays; i++) {
+      const d = new Date(startDay);
+      d.setDate(startDay.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      buckets.push({
+        key: iso,
+        label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        shortLabel: `${d.getDate()}`,
+        subLabel: isToday ? 'Today' : undefined,
+        dateStr: iso,
+        amount: 0,
+        unitsCount: 0,
+        txnCount: 0,
+        isCurrent: isToday,
+      });
+    }
+  }
+
+  // 4. Map transactions into buckets
+  const bucketMap = new Map(buckets.map((b) => [b.key, b]));
+  const bucketProductsMap = new Map<string, Map<string, number>>();
+
+  for (const txn of txns) {
+    const effectiveDate = new Date(txn.sold_at || txn.created_at);
+    const txnDateIso = effectiveDate.toISOString().slice(0, 10);
+
+    let targetBucketKey: string | undefined;
+
+    if (params.filter_mode === 'today') {
+      const hour = effectiveDate.getHours();
+      const slotStart = Math.floor(hour / 4) * 4;
+      targetBucketKey = `hour_${slotStart}`;
+    } else {
+      targetBucketKey = txnDateIso;
+    }
+
+    const bucket = bucketMap.get(targetBucketKey);
+    if (bucket) {
+      const txnItems = itemsByTxn.get(txn.id) || [];
+      const itemsTotal = txnItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
+      const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : itemsTotal;
+
+      bucket.amount += dealTotal;
+      bucket.unitsCount += txnItems.length;
+      bucket.txnCount += 1;
+
+      // Track product models in this bucket
+      let productCounter = bucketProductsMap.get(bucket.key);
+      if (!productCounter) {
+        productCounter = new Map<string, number>();
+        bucketProductsMap.set(bucket.key, productCounter);
+      }
+      for (const item of txnItems) {
+        const sku = unitMap.get(item.serial_number);
+        const model = sku ? (productMap.get(sku) || sku) : 'Unknown';
+        productCounter.set(model, (productCounter.get(model) || 0) + 1);
+      }
+    }
+  }
+
+  // Populate top product per bucket
+  for (const bucket of buckets) {
+    const pMap = bucketProductsMap.get(bucket.key);
+    if (pMap && pMap.size > 0) {
+      let topName = '';
+      let topCount = 0;
+      for (const [name, count] of pMap.entries()) {
+        if (count > topCount) {
+          topCount = count;
+          topName = name;
+        }
+      }
+      bucket.topProduct = `${topName} (${topCount})`;
+    }
+  }
+
+  const periodTotal = buckets.reduce((acc, b) => acc + b.amount, 0);
+  const periodUnits = buckets.reduce((acc, b) => acc + b.unitsCount, 0);
+  const periodTxns = buckets.reduce((acc, b) => acc + b.txnCount, 0);
+  const activeBucketsCount = buckets.filter((b) => !b.isFuture).length || 1;
+  const avgPerBucket = Math.round(periodTotal / activeBucketsCount);
+
+  let peakBucket: { label: string; amount: number } | null = null;
+  for (const b of buckets) {
+    if (!peakBucket || b.amount > peakBucket.amount) {
+      if (b.amount > 0) {
+        peakBucket = { label: b.label, amount: b.amount };
+      }
+    }
+  }
+
+  return {
+    data: buckets,
+    period_total: periodTotal,
+    period_units: periodUnits,
+    period_txns: periodTxns,
+    average_per_bucket: avgPerBucket,
+    peak_bucket: peakBucket,
+    error: null,
+  };
+}
+
 // ── Update a sale price on a specific transaction item ─────────
 export async function updateSalePrice(data: {
   transaction_id: string;
