@@ -29,6 +29,7 @@ import { useUser } from '../components/user-context';
 import { lookupUnit, swapUnitSku, bulkSwapSku, getSwapHistory } from '@/actions/sku-swap';
 import { listProducts } from '@/actions/products';
 import type { SkuSwapResult, UnitStatus } from '@/lib/types/database';
+import ComboboxSelect from '../components/combobox-select';
 
 type Tab = 'single' | 'bulk' | 'history';
 
@@ -249,17 +250,17 @@ function SingleSwapTab() {
               <div className="pt-2 border-t border-slate-100 space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Swap To</label>
-                  <select
+                  <ComboboxSelect
+                    options={unit.swap_targets.map((t) => ({
+                      value: t.sku,
+                      label: t.model_name,
+                      sublabel: t.sku,
+                    }))}
                     value={newSku}
-                    onChange={(e) => setNewSku(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-                  >
-                    {unit.swap_targets.map((t) => (
-                      <option key={t.sku} value={t.sku}>
-                        {t.sku} — {t.model_name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setNewSku(val)}
+                    placeholder="Select target SKU..."
+                    searchPlaceholder="Type model name or SKU..."
+                  />
                 </div>
 
                 <div>
@@ -356,24 +357,25 @@ function BulkSwapTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">From SKU</label>
-          <select
+          <ComboboxSelect
+            options={products
+              .filter((p) => p.model_group)
+              .map((p) => ({
+                value: p.sku,
+                label: p.model_name,
+                sublabel: p.sku,
+                badge: p.model_group ? `Group: ${p.model_group}` : undefined,
+                badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+              }))}
             value={fromSku}
-            onChange={(e) => {
-              setFromSku(e.target.value);
+            onChange={(val) => {
+              setFromSku(val);
               setToSku('');
               setResult(null);
             }}
-            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-          >
-            <option value="">Select source SKU...</option>
-            {products
-              .filter((p) => p.model_group)
-              .map((p) => (
-                <option key={p.sku} value={p.sku}>
-                  {p.sku} — {p.model_name}
-                </option>
-              ))}
-          </select>
+            placeholder="Select source SKU..."
+            searchPlaceholder="Search source SKU..."
+          />
           {fromProduct?.model_group && (
             <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
               <Layers className="w-3 h-3" />
@@ -384,24 +386,27 @@ function BulkSwapTab() {
 
         <div>
           <label className="block text-xs font-semibold text-slate-600 mb-1.5">To SKU</label>
-          <select
+          <ComboboxSelect
+            options={targetSkus.map((p) => ({
+              value: p.sku,
+              label: p.model_name,
+              sublabel: p.sku,
+            }))}
             value={toSku}
-            onChange={(e) => {
-              setToSku(e.target.value);
+            onChange={(val) => {
+              setToSku(val);
               setResult(null);
             }}
             disabled={!fromSku || targetSkus.length === 0}
-            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono disabled:opacity-50"
-          >
-            <option value="">
-              {!fromSku ? 'Select source first...' : targetSkus.length === 0 ? 'No variants in model group' : 'Select target SKU...'}
-            </option>
-            {targetSkus.map((p) => (
-              <option key={p.sku} value={p.sku}>
-                {p.sku} — {p.model_name}
-              </option>
-            ))}
-          </select>
+            placeholder={
+              !fromSku
+                ? 'Select source first...'
+                : targetSkus.length === 0
+                ? 'No variants in model group'
+                : 'Select target SKU...'
+            }
+            searchPlaceholder="Search target SKU..."
+          />
         </div>
       </div>
 

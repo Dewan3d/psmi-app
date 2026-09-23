@@ -30,6 +30,7 @@ import { createClient } from '@/lib/supabase/client';
 import ConfirmModal from '../../components/confirm-modal';
 import FeedbackModal from '../../components/feedback-modal';
 import { useUser } from '../../components/user-context';
+import ComboboxSelect from '../../components/combobox-select';
 
 type InboundDetail = {
   id: string;
@@ -356,17 +357,17 @@ function BulkAssignPanel({
           {showSkuPicker && (
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Assign all to SKU</label>
-              <select
+              <ComboboxSelect
+                options={skuOptions.map((opt) => ({
+                  value: opt.sku,
+                  label: opt.model_name,
+                  sublabel: opt.sku,
+                }))}
                 value={selectedSku}
-                onChange={(e) => setSelectedSku(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono"
-              >
-                {skuOptions.map((opt) => (
-                  <option key={opt.sku} value={opt.sku}>
-                    {opt.sku} — {opt.model_name}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedSku(val)}
+                placeholder="Select target SKU..."
+                searchPlaceholder="Search SKU or model..."
+              />
             </div>
           )}
 

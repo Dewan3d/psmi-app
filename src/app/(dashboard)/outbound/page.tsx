@@ -399,6 +399,9 @@ function NewOutboundModal({
   const [locationStock, setLocationStock] = useState<Record<string, number>>({});
   const [locationPending, setLocationPending] = useState<Record<string, number>>({});
   const [recentAddedMessage, setRecentAddedMessage] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'IN_STOCK' | 'POWER_STATION' | 'SHS' | 'ACCESSORIES'>('ALL');
+  const [activeTabSku, setActiveTabSku] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState('');
@@ -633,47 +636,127 @@ function NewOutboundModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0 bg-white">
           <div>
             <h2 className="text-base font-bold text-slate-900 tracking-tight">Create Outbound Order</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span
-                className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {/* Step 1 Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setStep(1);
+                }}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   step === 1
-                    ? 'bg-indigo-600 text-white'
-                    : step > 1
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 text-slate-600'
+                    ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
+                title="Go to Route & Destination"
               >
-                {step > 1 ? '✓' : '1'}
-              </span>
-              <span className={`text-xs font-semibold ${step >= 1 ? 'text-slate-900' : 'text-slate-500'}`}>
-                Route & Destination
-              </span>
-              <span className="text-slate-300 font-bold">→</span>
-              <span
-                className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${
-                  step === 2
-                    ? 'bg-indigo-600 text-white'
-                    : step > 2
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {step > 2 ? '✓' : '2'}
-              </span>
-              <span className={`text-xs font-semibold ${step >= 2 ? 'text-slate-900' : 'text-slate-500'}`}>
-                Add Items to Dispatch
-              </span>
-              <span className="text-slate-300 font-bold">→</span>
-              <span
-                className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${
-                  step === 3 ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                3
-              </span>
-              <span className={`text-xs font-semibold ${step >= 3 ? 'text-slate-900' : 'text-slate-500'}`}>
-                Pricing & Review
-              </span>
+                <span
+                  className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
+                    step > 1
+                      ? 'bg-emerald-600 text-white'
+                      : step === 1
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  {step > 1 ? '✓' : '1'}
+                </span>
+                <span>Route & Destination</span>
+              </button>
+
+              <span className="text-slate-300 font-bold text-xs select-none">→</span>
+
+              {/* Step 2 Button */}
+              {(() => {
+                const canGoToStep2 = Boolean(
+                  route &&
+                  fromLocationId &&
+                  (route !== 'TB' || toLocationId) &&
+                  ((route !== 'B2B' && route !== 'B2C') || (customerName.trim() && salesManager.trim()))
+                );
+
+                return (
+                  <button
+                    type="button"
+                    disabled={!canGoToStep2}
+                    onClick={() => {
+                      if (!canGoToStep2) {
+                        setError('Please complete Route and Destination details first');
+                        return;
+                      }
+                      setError(null);
+                      setStep(2);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      step === 2
+                        ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                        : canGoToStep2
+                        ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
+                        : 'text-slate-400 opacity-60 cursor-not-allowed'
+                    }`}
+                    title={canGoToStep2 ? 'Go to Add Items' : 'Complete Route & Destination first'}
+                  >
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
+                        step > 2
+                          ? 'bg-emerald-600 text-white'
+                          : step === 2
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {step > 2 ? '✓' : '2'}
+                    </span>
+                    <span>Add Items to Dispatch</span>
+                  </button>
+                );
+              })()}
+
+              <span className="text-slate-300 font-bold text-xs select-none">→</span>
+
+              {/* Step 3 Button */}
+              {(() => {
+                const canGoToStep3 = Boolean(
+                  route &&
+                  fromLocationId &&
+                  selectedSerials.length > 0
+                );
+
+                return (
+                  <button
+                    type="button"
+                    disabled={!canGoToStep3}
+                    onClick={() => {
+                      if (!canGoToStep3) {
+                        setError('Please add at least one item to dispatch first');
+                        return;
+                      }
+                      setError(null);
+                      setStep(3);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      step === 3
+                        ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                        : canGoToStep3
+                        ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer'
+                        : 'text-slate-400 opacity-60 cursor-not-allowed'
+                    }`}
+                    title={canGoToStep3 ? 'Go to Pricing & Review' : 'Add at least one item first'}
+                  >
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
+                        step === 3
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-200 text-slate-500'
+                      }`}
+                    >
+                      3
+                    </span>
+                    <span>Pricing & Review</span>
+                  </button>
+                );
+              })()}
             </div>
           </div>
           <button
@@ -879,307 +962,374 @@ function NewOutboundModal({
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
                   {/* Left Column: Product Selection and Serial/Quantity Allocation */}
                   <div className="lg:col-span-7 space-y-4">
-                    <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
                         <div>
-                          <h3 className="text-sm font-semibold text-slate-800">1. Select Product to Add</h3>
-                          <p className="text-xs text-slate-400">
-                            Choose a product model to allocate units or serial numbers for this dispatch.
+                          <h3 className="text-sm font-bold text-slate-900">Select Products to Dispatch</h3>
+                          <p className="text-xs text-slate-500">
+                            Pick products to add FIFO units, specify quantities, or scan serial numbers.
                           </p>
                         </div>
-                        {sku && (
-                          <button
-                            type="button"
-                            onClick={() => setSku('')}
-                            className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer"
-                          >
-                            Change Product
-                          </button>
+                        {selectedSerials.length > 0 && (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 self-start sm:self-auto">
+                            {selectedSerials.length} unit(s) staged
+                          </span>
                         )}
                       </div>
 
-                      <ComboboxSelect
-                        options={products.map((p) => {
+                      {/* Search Bar & Category Filters */}
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            placeholder="Filter by product name, SKU, or model..."
+                            className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 placeholder-slate-400 transition-all"
+                          />
+                          {productSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setProductSearch('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Filter Tabs */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                          {(
+                            [
+                              { key: 'ALL', label: 'All' },
+                              { key: 'IN_STOCK', label: 'In Stock' },
+                              { key: 'POWER_STATION', label: '⚡ Power Station' },
+                              { key: 'SHS', label: '☀️ SHS' },
+                              { key: 'ACCESSORIES', label: '🔌 Accessories' },
+                            ] as const
+                          ).map((tab) => (
+                            <button
+                              key={tab.key}
+                              type="button"
+                              onClick={() => setCategoryFilter(tab.key)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors shrink-0 cursor-pointer ${
+                                categoryFilter === tab.key
+                                  ? 'bg-slate-900 text-white shadow-2xs'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Product Catalogue List */}
+                      {(() => {
+                        const filteredProducts = products.filter((p) => {
                           const stock = locationStock[p.sku] ?? 0;
-                          const pend = locationPending[p.sku] ?? 0;
-                          return {
-                            value: p.sku,
-                            label: p.model_name,
-                            sublabel: p.sku,
-                            badge:
-                              (p as any).category_badge === 'POWER_STATION'
-                                ? '⚡ Power Station'
-                                : (p as any).category_badge === 'SHS'
-                                ? '☀️ SHS'
-                                : (p as any).category_badge === 'ACCESSORIES'
-                                ? '🔌 Accessories'
-                                : undefined,
-                            badgeColor:
-                              (p as any).category_badge === 'POWER_STATION'
-                                ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                                : (p as any).category_badge === 'SHS'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : 'bg-amber-50 text-amber-700 border-amber-100',
-                            extra:
-                              stock > 0
-                                ? `${stock} in stock`
-                                : pend > 0
-                                ? `0 in stock (${pend} pending)`
-                                : 'Out of stock',
-                            extraColor:
-                              stock > 0
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : pend > 0
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-slate-100 text-slate-400 border-slate-200',
-                          };
-                        })}
-                        value={sku}
-                        onChange={(val) => {
-                          setSku(val);
-                          setError(null);
-                        }}
-                        placeholder="Search product or SKU..."
-                        searchPlaceholder="Search product or SKU..."
-                        emptyText="No matching products found"
-                      />
+                          if (categoryFilter === 'IN_STOCK' && stock <= 0) return false;
+                          if (categoryFilter === 'POWER_STATION' && (p as any).category_badge !== 'POWER_STATION') return false;
+                          if (categoryFilter === 'SHS' && (p as any).category_badge !== 'SHS') return false;
+                          if (categoryFilter === 'ACCESSORIES' && (p as any).category_badge !== 'ACCESSORIES') return false;
 
-                      {/* Product Allocation Controls */}
-                      {sku && selectedProd && (
-                        <div className="mt-3 p-4 bg-slate-50/80 rounded-xl border border-slate-200/70 space-y-3 animate-fade-in">
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-sm text-slate-900">
-                                {selectedProd.model_name}
-                              </span>
-                              <span className="text-xs font-mono text-slate-500 px-2 py-0.5 bg-white border border-slate-200 rounded-md">
-                                {selectedProd.sku}
-                              </span>
-                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-700">
-                                {isSerialized ? 'Serialized' : 'Non-Serialized (Quantity)'}
-                              </span>
+                          if (productSearch.trim()) {
+                            const query = productSearch.toLowerCase().trim();
+                            const matchName = p.model_name.toLowerCase().includes(query);
+                            const matchSku = p.sku.toLowerCase().includes(query);
+                            if (!matchName && !matchSku) return false;
+                          }
+                          return true;
+                        });
+
+                        if (filteredProducts.length === 0) {
+                          return (
+                            <div className="py-8 text-center text-xs text-slate-400 bg-slate-50/60 rounded-xl border border-slate-100">
+                              No products match the selected filter or search.
                             </div>
-                            <div className="text-xs">
-                              <span className="text-slate-500">Available at {fromLoc?.name}: </span>
-                              <strong
-                                className={`font-bold ${
-                                  remainingStock > 0 ? 'text-emerald-700 font-mono' : 'text-rose-600'
-                                }`}
-                              >
-                                {remainingStock} units
-                              </strong>
-                              {alreadySelectedForThisSku > 0 && (
-                                <span className="text-slate-400 ml-1.5">
-                                  ({alreadySelectedForThisSku} already added)
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                          );
+                        }
 
-                          {/* Out of Stock Warning with Pending Serials Insight */}
-                          {remainingStock === 0 && (
-                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
-                              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                              <div>
-                                <p className="font-semibold">
-                                  {alreadySelectedForThisSku > 0
-                                    ? 'All available units have been added'
-                                    : 'No units available to dispatch from this location'}
-                                </p>
-                                {alreadySelectedForThisSku > 0 ? (
-                                  <p className="text-amber-700 mt-0.5">
-                                    All {alreadySelectedForThisSku} unit(s) currently in stock at {fromLoc?.name || 'this location'} have been added to this dispatch order.
-                                  </p>
-                                ) : pendingStock > 0 ? (
-                                  <p className="text-amber-700 mt-0.5">
-                                    There are <strong>{pendingStock} unit(s)</strong> of this product awaiting serial assignment in Inbound Operations. Complete serial assignment in Inbound to make them available.
-                                  </p>
-                                ) : (
-                                  <p className="text-amber-700 mt-0.5">
-                                    Current stock count at {fromLoc?.name || 'this location'} is 0.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
+                        return (
+                          <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                            {filteredProducts.map((p) => {
+                              const totalStock = locationStock[p.sku] ?? 0;
+                              const pending = locationPending[p.sku] ?? 0;
+                              const alreadyAdded = selectedSerials.filter(
+                                (s) => (serialSkuMap[s] || (s.startsWith('NS-') ? s.split('-')[1] : '')) === p.sku
+                              ).length;
+                              const currentRemaining = Math.max(0, totalStock - alreadyAdded);
+                              const isSerializedProd = p.is_serialized !== false;
+                              const isSelected = sku === p.sku;
 
-                          {/* Non-Serialized Product: Fast Quantity Entry */}
-                          {!isSerialized && (
-                            <div className="space-y-2.5">
-                              <label className="block text-xs font-semibold text-slate-700">
-                                Enter Quantity to Dispatch:
-                              </label>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const cur = parseInt(nonSerializedQty, 10) || 1;
-                                      setNonSerializedQty(String(Math.max(1, cur - 1)));
-                                    }}
-                                    className="px-3 py-2 text-slate-500 hover:bg-slate-100 transition-colors font-bold text-sm cursor-pointer"
-                                  >
-                                    −
-                                  </button>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max={remainingStock > 0 ? remainingStock : undefined}
-                                    value={nonSerializedQty}
-                                    onChange={(e) => setNonSerializedQty(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        const qty = parseInt(nonSerializedQty, 10);
-                                        if (qty > 0) handleAddQuantity(sku, qty);
-                                      }
-                                    }}
-                                    placeholder="Qty"
-                                    className="w-20 text-center py-2 text-sm font-bold text-slate-800 focus:outline-none border-x border-slate-200"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const cur = parseInt(nonSerializedQty, 10) || 0;
-                                      setNonSerializedQty(String(cur + 1));
-                                    }}
-                                    className="px-3 py-2 text-slate-500 hover:bg-slate-100 transition-colors font-bold text-sm cursor-pointer"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-
-                                {/* Quick Presets */}
-                                {remainingStock > 0 && (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {[1, 5, 10, 20].map((q) => (
-                                      <button
-                                        key={q}
-                                        type="button"
-                                        onClick={() => {
-                                          const currentVal = parseInt(nonSerializedQty, 10) || 0;
-                                          const nextVal = Math.min(currentVal + q, remainingStock);
-                                          setNonSerializedQty(String(nextVal));
-                                        }}
-                                        className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
-                                      >
-                                        +{q}
-                                      </button>
-                                    ))}
-                                    <button
-                                      type="button"
-                                      onClick={() => setNonSerializedQty(String(remainingStock))}
-                                      className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 cursor-pointer transition-colors"
-                                    >
-                                      All ({remainingStock})
-                                    </button>
-                                  </div>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const qty = parseInt(nonSerializedQty, 10);
-                                    if (qty > 0) handleAddQuantity(sku, qty);
-                                  }}
-                                  disabled={!nonSerializedQty || parseInt(nonSerializedQty, 10) <= 0}
-                                  className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                              return (
+                                <div
+                                  key={p.sku}
+                                  className={`rounded-xl border transition-all p-3 space-y-2.5 ${
+                                    isSelected
+                                      ? 'border-indigo-400 bg-indigo-50/20 ring-1 ring-indigo-400/30'
+                                      : currentRemaining > 0
+                                      ? 'border-slate-200 bg-white hover:border-slate-300'
+                                      : 'border-slate-200/60 bg-slate-50/60 opacity-75'
+                                  }`}
                                 >
-                                  <Plus className="w-3.5 h-3.5" /> Add to Dispatch
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                                  {/* Row Header: Model, SKU, Badges & Stock Indicator */}
+                                  <div className="flex items-start justify-between gap-2 flex-wrap sm:flex-nowrap">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <h4 className="text-xs font-bold text-slate-900 truncate">
+                                          {p.model_name}
+                                        </h4>
+                                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                          {p.sku}
+                                        </span>
+                                        {(p as any).category_badge === 'POWER_STATION' && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                            ⚡ Power Station
+                                          </span>
+                                        )}
+                                        {(p as any).category_badge === 'SHS' && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                            ☀️ SHS
+                                          </span>
+                                        )}
+                                        {(p as any).category_badge === 'ACCESSORIES' && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-100">
+                                            🔌 Accessories
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
 
-                          {/* Serialized Product: FIFO Selection and Manual Scan */}
-                          {isSerialized && (
-                            <div className="space-y-3">
-                              {/* FIFO Quick Batch Buttons */}
-                              {fifoSuggestions.length > 0 && (
-                                <div className="space-y-1.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-slate-700">
-                                      FIFO Suggestions (Oldest stock first):
-                                    </span>
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-slate-400 mr-1">Quick Add:</span>
-                                      {[1, 5, 10].map((batchQty) => {
-                                        const unselected = fifoSuggestions.filter((sn) => !selectedSerials.includes(sn));
-                                        if (unselected.length === 0) return null;
-                                        return (
-                                          <button
-                                            key={batchQty}
-                                            type="button"
-                                            onClick={() => {
-                                              unselected.slice(0, batchQty).forEach((sn) => addSerial(sn, sku));
-                                            }}
-                                            className="px-2 py-0.5 text-[11px] font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 rounded-md transition-colors cursor-pointer"
-                                          >
-                                            +{batchQty}
-                                          </button>
-                                        );
-                                      })}
+                                    {/* Stock Badge */}
+                                    <div className="text-right shrink-0">
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                                          currentRemaining > 0
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                            : totalStock > 0 && alreadyAdded >= totalStock
+                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                            : pending > 0
+                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                            : 'bg-slate-100 text-slate-400 border-slate-200'
+                                        }`}
+                                      >
+                                        {currentRemaining > 0
+                                          ? `${currentRemaining} in stock`
+                                          : alreadyAdded >= totalStock && totalStock > 0
+                                          ? `All ${alreadyAdded} staged`
+                                          : pending > 0
+                                          ? `0 (${pending} pending)`
+                                          : 'Out of stock'}
+                                      </span>
                                     </div>
                                   </div>
 
-                                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-white rounded-xl border border-slate-200/80">
-                                    {fifoSuggestions.map((sn) => {
-                                      const isChosen = selectedSerials.includes(sn);
-                                      return (
+                                  {/* Quick Action Controls */}
+                                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                                    {isSerializedProd ? (
+                                      /* Serialized Controls: FIFO Batch + Specific Serials Picker */
+                                      <div className="flex items-center justify-between w-full gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="text-[11px] text-slate-500 font-medium">FIFO Add:</span>
+                                          {[1, 5, 10].map((batchCount) => {
+                                            const disabled = currentRemaining < batchCount;
+                                            return (
+                                              <button
+                                                key={batchCount}
+                                                type="button"
+                                                disabled={disabled}
+                                                onClick={() => handleAddQuantity(p.sku, batchCount)}
+                                                className="px-2 py-0.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-700 disabled:hover:border-slate-200 transition-colors cursor-pointer"
+                                              >
+                                                +{batchCount}
+                                              </button>
+                                            );
+                                          })}
+                                          {currentRemaining > 0 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAddQuantity(p.sku, currentRemaining)}
+                                              className="px-2 py-0.5 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors cursor-pointer"
+                                            >
+                                              All ({currentRemaining})
+                                            </button>
+                                          )}
+                                        </div>
+
                                         <button
-                                          key={sn}
                                           type="button"
                                           onClick={() => {
-                                            if (isChosen) removeSerial(sn);
-                                            else addSerial(sn, sku);
+                                            if (sku === p.sku) {
+                                              setSku('');
+                                            } else {
+                                              setSku(p.sku);
+                                            }
                                           }}
-                                          className={`text-xs font-mono px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
-                                            isChosen
-                                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold shadow-2xs'
-                                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300'
+                                          className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                                            isSelected
+                                              ? 'bg-indigo-600 text-white'
+                                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                           }`}
                                         >
-                                          {isChosen ? '✓ ' : '+ '}
-                                          {sn}
+                                          <Search className="w-3 h-3" />
+                                          {isSelected ? 'Close Picker' : 'Scan / Pick Serials'}
                                         </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
+                                      </div>
+                                    ) : (
+                                      /* Non-Serialized (Accessory) Controls: Direct Quantity Stepper */
+                                      <div className="flex items-center justify-between w-full gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[11px] text-slate-500 font-medium">Add Qty:</span>
+                                          <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                                            <button
+                                              type="button"
+                                              disabled={currentRemaining <= 0}
+                                              onClick={() => {
+                                                const cur = parseInt(nonSerializedQty, 10) || 1;
+                                                setNonSerializedQty(String(Math.max(1, cur - 1)));
+                                              }}
+                                              className="px-2 py-1 text-slate-500 hover:bg-slate-100 transition-colors font-bold text-xs cursor-pointer disabled:opacity-40"
+                                            >
+                                              −
+                                            </button>
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              max={currentRemaining > 0 ? currentRemaining : undefined}
+                                              value={sku === p.sku ? nonSerializedQty : ''}
+                                              onFocus={() => {
+                                                if (sku !== p.sku) {
+                                                  setSku(p.sku);
+                                                  setNonSerializedQty('1');
+                                                }
+                                              }}
+                                              onChange={(e) => {
+                                                setSku(p.sku);
+                                                setNonSerializedQty(e.target.value);
+                                              }}
+                                              placeholder="1"
+                                              className="w-12 text-center py-1 text-xs font-bold text-slate-800 focus:outline-none border-x border-slate-200"
+                                            />
+                                            <button
+                                              type="button"
+                                              disabled={currentRemaining <= 0}
+                                              onClick={() => {
+                                                setSku(p.sku);
+                                                const cur = parseInt(nonSerializedQty, 10) || 0;
+                                                const next = Math.min(cur + 1, currentRemaining);
+                                                setNonSerializedQty(String(next));
+                                              }}
+                                              className="px-2 py-1 text-slate-500 hover:bg-slate-100 transition-colors font-bold text-xs cursor-pointer disabled:opacity-40"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            disabled={currentRemaining <= 0}
+                                            onClick={() => {
+                                              const qty = sku === p.sku && nonSerializedQty ? parseInt(nonSerializedQty, 10) : 1;
+                                              if (qty > 0) handleAddQuantity(p.sku, qty);
+                                            }}
+                                            className="px-3 py-1 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                                          >
+                                            <Plus className="w-3 h-3" /> Add
+                                          </button>
+                                        </div>
 
-                              {/* Manual Scan Input */}
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={manualSerial}
-                                  onChange={(e) => setManualSerial(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && manualSerial.trim()) {
-                                      addSerial(manualSerial.trim(), sku);
-                                      setManualSerial('');
-                                    }
-                                  }}
-                                  placeholder="Scan barcode or type serial number…"
-                                  className="flex-1 px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono text-slate-800 bg-white"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (manualSerial.trim()) {
-                                      addSerial(manualSerial.trim(), sku);
-                                      setManualSerial('');
-                                    }
-                                  }}
-                                  disabled={!manualSerial.trim()}
-                                  className="px-3.5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 cursor-pointer transition-colors"
-                                >
-                                  Add Serial
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                                        {currentRemaining > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleAddQuantity(p.sku, currentRemaining)}
+                                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors cursor-pointer"
+                                          >
+                                            All ({currentRemaining})
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Expandable Manual / Barcode Serial Picker Drawer */}
+                                  {isSelected && isSerializedProd && (
+                                    <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-indigo-100 space-y-3 animate-fade-in">
+                                      {/* FIFO Suggestions Chips */}
+                                      {fifoSuggestions.length > 0 && (
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-700">
+                                              Click serial to toggle:
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">
+                                              {fifoSuggestions.length} unit(s) available
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1.5 bg-white rounded-lg border border-slate-200">
+                                            {fifoSuggestions.map((sn) => {
+                                              const isChosen = selectedSerials.includes(sn);
+                                              return (
+                                                <button
+                                                  key={sn}
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (isChosen) removeSerial(sn);
+                                                    else addSerial(sn, p.sku);
+                                                  }}
+                                                  className={`text-xs font-mono px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
+                                                    isChosen
+                                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-semibold shadow-2xs'
+                                                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300'
+                                                  }`}
+                                                >
+                                                  {isChosen ? '✓ ' : '+ '}
+                                                  {sn}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Barcode Scanner / Manual Serial Input */}
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          value={manualSerial}
+                                          onChange={(e) => setManualSerial(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && manualSerial.trim()) {
+                                              addSerial(manualSerial.trim(), p.sku);
+                                              setManualSerial('');
+                                            }
+                                          }}
+                                          placeholder="Scan barcode or type serial number…"
+                                          className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono text-slate-800 bg-white"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (manualSerial.trim()) {
+                                              addSerial(manualSerial.trim(), p.sku);
+                                              setManualSerial('');
+                                            }
+                                          }}
+                                          disabled={!manualSerial.trim()}
+                                          className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 cursor-pointer transition-colors"
+                                        >
+                                          Add Serial
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 

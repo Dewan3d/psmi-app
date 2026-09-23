@@ -52,6 +52,8 @@ export default function ComboboxSelect({
   // Find currently selected option
   const selectedOption = options.find((opt) => opt.value === value);
 
+  const [openUpwards, setOpenUpwards] = useState(false);
+
   // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -66,10 +68,18 @@ export default function ComboboxSelect({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Auto-focus search input when opened
+  // Check available space below button and auto-focus search
   useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      searchInputRef.current.focus();
+    if (isOpen) {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        // If less than 280px below, flip open upwards
+        setOpenUpwards(spaceBelow < 280 && rect.top > 280);
+      }
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
     }
   }, [isOpen]);
 
@@ -171,7 +181,11 @@ export default function ComboboxSelect({
 
       {/* Floating Dropdown Popover */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-[80] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden animate-fade-in">
+        <div
+          className={`absolute left-0 right-0 z-[80] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden animate-fade-in ${
+            openUpwards ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+          }`}
+        >
           {/* Live Search Input inside Popover */}
           <div className="p-3 border-b border-slate-100 bg-slate-50/70">
             <div className="relative">

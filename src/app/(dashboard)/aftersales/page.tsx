@@ -47,6 +47,7 @@ import {
 import { useUser } from '../components/user-context';
 import ConfirmModal from '../components/confirm-modal';
 import Portal from '../components/portal';
+import ComboboxSelect from '../components/combobox-select';
 
 // ── KPI Card Component ─────────────────────────────────────────
 function KpiCard({
@@ -594,26 +595,44 @@ function NewReplacementModal({
               </div>
 
               {isManualSerialized ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <select
-                    value={manualSku}
-                    onChange={(e) => setManualSku(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-                  >
-                    <option value="">Select Model / SKU...</option>
-                    {products.map((p) => (
-                      <option key={p.sku} value={p.sku}>
-                        {p.model_name} ({p.sku}) {p.is_serialized === false ? '• [Non-serialized]' : ''}
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                  <div className="min-w-0">
+                    <ComboboxSelect
+                      options={products.map((p) => ({
+                        value: p.sku,
+                        label: p.model_name,
+                        sublabel: p.sku,
+                        badge:
+                          (p as any).category_badge === 'POWER_STATION'
+                            ? '⚡ Power Station'
+                            : (p as any).category_badge === 'SHS'
+                            ? '☀️ SHS'
+                            : (p as any).category_badge === 'ACCESSORIES'
+                            ? '🔌 Accessories'
+                            : undefined,
+                        badgeColor:
+                          (p as any).category_badge === 'POWER_STATION'
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                            : (p as any).category_badge === 'SHS'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            : 'bg-amber-50 text-amber-700 border-amber-100',
+                        extra: p.is_serialized === false ? 'Non-serialized' : undefined,
+                        extraColor: 'bg-amber-50 text-amber-700 border-amber-200',
+                      }))}
+                      value={manualSku}
+                      onChange={(val) => setManualSku(val)}
+                      placeholder="Select Model / SKU..."
+                      searchPlaceholder="Type model name or SKU..."
+                      emptyText="No matching products found"
+                    />
+                  </div>
 
                   <input
                     type="text"
                     placeholder="Original Serial #"
                     value={manualOriginalSerial}
                     onChange={(e) => setManualOriginalSerial(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
                   />
 
                   <input
@@ -621,25 +640,41 @@ function NewReplacementModal({
                     placeholder="New Serial #"
                     value={manualReplacementSerial}
                     onChange={(e) => setManualReplacementSerial(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg font-mono"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
                   />
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="sm:col-span-2">
-                      <select
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                    <div className="sm:col-span-2 min-w-0">
+                      <ComboboxSelect
+                        options={products.map((p) => ({
+                          value: p.sku,
+                          label: p.model_name,
+                          sublabel: p.sku,
+                          badge:
+                            (p as any).category_badge === 'POWER_STATION'
+                              ? '⚡ Power Station'
+                              : (p as any).category_badge === 'SHS'
+                              ? '☀️ SHS'
+                              : (p as any).category_badge === 'ACCESSORIES'
+                              ? '🔌 Accessories'
+                              : undefined,
+                          badgeColor:
+                            (p as any).category_badge === 'POWER_STATION'
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                              : (p as any).category_badge === 'SHS'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : 'bg-amber-50 text-amber-700 border-amber-100',
+                          extra: p.is_serialized === false ? 'Non-serialized' : undefined,
+                          extraColor: 'bg-amber-50 text-amber-700 border-amber-200',
+                        }))}
                         value={manualSku}
-                        onChange={(e) => setManualSku(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-                      >
-                        <option value="">Select Model / SKU...</option>
-                        {products.map((p) => (
-                          <option key={p.sku} value={p.sku}>
-                            {p.model_name} ({p.sku}) {p.is_serialized === false ? '• [Non-serialized]' : ''}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(val) => setManualSku(val)}
+                        placeholder="Select Model / SKU..."
+                        searchPlaceholder="Type model name or SKU..."
+                        emptyText="No matching products found"
+                      />
                     </div>
 
                     <div className="flex items-center gap-1.5">
