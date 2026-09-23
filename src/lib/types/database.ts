@@ -81,6 +81,10 @@ export interface Transaction {
   customer_name?: string | null;
   sales_manager?: string | null;
   sold_at?: string | null;
+  amount_paid?: number | null;
+  payment_status?: 'PAID' | 'PARTIAL' | 'PENDING' | null;
+  total_order_amount?: number | null;
+  total_units_ordered?: number | null;
   created_at: string;
 }
 
@@ -195,6 +199,11 @@ export interface SaleRecord {
   created_at: string;
   verified: boolean;
   user_name: string;
+  notes?: string | null;
+  amount_paid?: number | null;
+  payment_status?: 'PAID' | 'PARTIAL' | 'PENDING' | null;
+  total_order_amount?: number | null;
+  total_units_ordered?: number | null;
   items: {
     serial_number: string;
     sku: string;

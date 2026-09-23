@@ -49,15 +49,24 @@ export async function getSales(filters?: {
     return q.range(offset, offset + limit - 1);
   };
 
-  let { data: transactions, count, error: txnError } = await buildQuery(
-    'id, tracking_number, route, customer_name, sales_manager, sold_at, created_at, verified, user_id, notes'
-  );
+  const baseFields = 'id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes';
+  const extendedFields = `${baseFields}, sold_at, amount_paid, payment_status, total_order_amount, total_units_ordered`;
 
-  // If sold_at column doesn't exist yet, retry without it
-  if (txnError && txnError.message?.includes('sold_at')) {
-    const fallbackRes = await buildQuery(
-      'id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes'
-    );
+  let { data: transactions, count, error: txnError } = await buildQuery(extendedFields);
+
+  // If new columns or sold_at don't exist yet, fallback gracefully
+  if (txnError && (
+    txnError.message?.includes('amount_paid') ||
+    txnError.message?.includes('payment_status') ||
+    txnError.message?.includes('total_order_amount') ||
+    txnError.message?.includes('total_units_ordered') ||
+    txnError.message?.includes('sold_at')
+  )) {
+    // Try with sold_at first
+    let fallbackRes = await buildQuery(`${baseFields}, sold_at`);
+    if (fallbackRes.error && fallbackRes.error.message?.includes('sold_at')) {
+      fallbackRes = await buildQuery(baseFields);
+    }
     transactions = fallbackRes.data;
     count = fallbackRes.count;
     txnError = fallbackRes.error;
@@ -147,6 +156,11 @@ export async function getSales(filters?: {
       created_at: txn.created_at,
       verified: txn.verified,
       user_name: profileMap.get(txn.user_id) || 'Unknown',
+      notes: txn.notes || null,
+      amount_paid: txn.amount_paid != null ? Number(txn.amount_paid) : (txn.verified ? totalSale : null),
+      payment_status: (txn.payment_status || (txn.verified ? 'PAID' : 'PENDING')) as 'PAID' | 'PARTIAL' | 'PENDING',
+      total_order_amount: txn.total_order_amount != null ? Number(txn.total_order_amount) : totalSale,
+      total_units_ordered: txn.total_units_ordered != null ? Number(txn.total_units_ordered) : saleItems.length,
       items: saleItems,
       total_sale: totalSale,
       total_cost: totalCost,
@@ -178,33 +192,67 @@ export async function getSalesSummaryStats(filters?: {
     profit_margin: number;
     units_sold: number;
     transaction_count: number;
+    cash_collected: number;
+    balance_due: number;
   };
   error: string | null;
 }> {
   const supabase = await createClient();
 
-  // Get matching transaction IDs
+  // Get matching transactions with financial details
   let query = supabase
     .from('transactions')
-    .select('id')
+    .select('id, verified, amount_paid, total_order_amount')
     .eq('type', 'OUTBOUND')
     .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
 
   if (filters?.from_date) query = query.gte('created_at', filters.from_date);
   if (filters?.to_date) query = query.lte('created_at', filters.to_date);
 
-  const { data: transactions, error: txnError } = await query;
+  let { data: transactions, error: txnError } = await query;
+
+  // Fallback if columns are not yet recognized in cache
+  if (txnError && (txnError.message?.includes('amount_paid') || txnError.message?.includes('total_order_amount'))) {
+    let fallbackQuery = supabase
+      .from('transactions')
+      .select('id, verified')
+      .eq('type', 'OUTBOUND')
+      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
+    if (filters?.from_date) fallbackQuery = fallbackQuery.gte('created_at', filters.from_date);
+    if (filters?.to_date) fallbackQuery = fallbackQuery.lte('created_at', filters.to_date);
+    const fallbackRes = await fallbackQuery;
+    transactions = fallbackRes.data as any;
+    txnError = fallbackRes.error;
+  }
 
   if (txnError) {
     return {
-      data: { total_revenue: 0, total_cost: 0, gross_profit: 0, profit_margin: 0, units_sold: 0, transaction_count: 0 },
+      data: {
+        total_revenue: 0,
+        total_cost: 0,
+        gross_profit: 0,
+        profit_margin: 0,
+        units_sold: 0,
+        transaction_count: 0,
+        cash_collected: 0,
+        balance_due: 0,
+      },
       error: txnError.message,
     };
   }
 
   if (!transactions || transactions.length === 0) {
     return {
-      data: { total_revenue: 0, total_cost: 0, gross_profit: 0, profit_margin: 0, units_sold: 0, transaction_count: 0 },
+      data: {
+        total_revenue: 0,
+        total_cost: 0,
+        gross_profit: 0,
+        profit_margin: 0,
+        units_sold: 0,
+        transaction_count: 0,
+        cash_collected: 0,
+        balance_due: 0,
+      },
       error: null,
     };
   }
@@ -214,8 +262,16 @@ export async function getSalesSummaryStats(filters?: {
   // Get all transaction items with prices
   const { data: items } = await supabase
     .from('transaction_items')
-    .select('serial_number, sale_price, purchase_price')
+    .select('transaction_id, serial_number, sale_price, purchase_price')
     .in('transaction_id', txnIds);
+
+  // Group items by transaction to compute fallback agreed totals
+  const itemsByTxn = new Map<string, any[]>();
+  for (const item of items || []) {
+    const arr = itemsByTxn.get(item.transaction_id) || [];
+    arr.push(item);
+    itemsByTxn.set(item.transaction_id, arr);
+  }
 
   // For items without purchase_price, try to get cost_price from products
   const serialNumbers = (items || []).filter((i: any) => i.purchase_price == null).map((i: any) => i.serial_number);
@@ -244,11 +300,26 @@ export async function getSalesSummaryStats(filters?: {
 
   let totalRevenue = 0;
   let totalCost = 0;
+  let cashCollected = 0;
+  let balanceDue = 0;
   const unitsSold = (items || []).length;
 
   for (const item of items || []) {
     totalRevenue += item.sale_price || 0;
     totalCost += item.purchase_price ?? costFallbackMap.get(item.serial_number) ?? 0;
+  }
+
+  // Calculate Cash Collected and Balance Due per transaction
+  for (const txn of transactions) {
+    const txnItems = itemsByTxn.get(txn.id) || [];
+    const itemsTotal = txnItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
+    const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : itemsTotal;
+    const paid = txn.amount_paid != null ? Number(txn.amount_paid) : (txn.verified ? dealTotal : 0);
+
+    cashCollected += paid;
+    if (dealTotal > paid) {
+      balanceDue += (dealTotal - paid);
+    }
   }
 
   const grossProfit = totalRevenue - totalCost;
@@ -262,6 +333,8 @@ export async function getSalesSummaryStats(filters?: {
       profit_margin: Math.round(profitMargin * 10) / 10,
       units_sold: unitsSold,
       transaction_count: transactions.length,
+      cash_collected: cashCollected,
+      balance_due: balanceDue,
     },
     error: null,
   };
@@ -382,6 +455,134 @@ export async function updateSaleDate(data: {
     .eq('id', data.transaction_id);
 
   if (error) {
+    return { error: error.message };
+  }
+
+  try {
+    revalidatePath('/sales');
+    revalidatePath('/outbound');
+  } catch {}
+
+  return { error: null };
+}
+
+// ── Update transaction Notes ──────────────────────────────────
+export async function updateSaleNotes(data: {
+  transaction_id: string;
+  notes: string;
+}): Promise<{ error: string | null }> {
+  let supabase: any;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    supabase = await createClient();
+  }
+
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (user) {
+    const { data: profile } = await authClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'VIEWER') {
+      return { error: 'Permission denied: View-only accounts cannot edit notes.' };
+    }
+  }
+
+  const { error } = await supabase
+    .from('transactions')
+    .update({ notes: data.notes?.trim() || null })
+    .eq('id', data.transaction_id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  try {
+    revalidatePath('/sales');
+    revalidatePath('/outbound');
+  } catch {}
+
+  return { error: null };
+}
+
+// ── Update transaction Payment & Installment (ADMIN ONLY) ─────
+export async function updateSalePayment(data: {
+  transaction_id: string;
+  amount_paid: number | null;
+  payment_status: 'PAID' | 'PARTIAL' | 'PENDING';
+  total_order_amount?: number | null;
+  total_units_ordered?: number | null;
+  notes?: string;
+}): Promise<{ error: string | null }> {
+  const authClient = await createClient();
+  const { data: { user } } = await authClient.auth.getUser();
+
+  if (!user) {
+    return { error: 'Authentication required.' };
+  }
+
+  // Strict Admin Role Check
+  const { data: profile } = await authClient
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profile?.role !== 'ADMIN') {
+    return { error: 'Permission denied: Only administrators can edit payment and installment records.' };
+  }
+
+  let adminSupabase: any;
+  try {
+    adminSupabase = createAdminClient();
+  } catch {
+    adminSupabase = authClient;
+  }
+
+  const updatePayload: Record<string, any> = {
+    payment_status: data.payment_status,
+  };
+
+  if (data.amount_paid !== undefined) {
+    updatePayload.amount_paid = data.amount_paid;
+  }
+  if (data.total_order_amount !== undefined) {
+    updatePayload.total_order_amount = data.total_order_amount;
+  }
+  if (data.total_units_ordered !== undefined) {
+    updatePayload.total_units_ordered = data.total_units_ordered;
+  }
+  if (data.notes !== undefined) {
+    updatePayload.notes = data.notes?.trim() || null;
+  }
+
+  // If status is PAID, also ensure verified can reflect if appropriate
+  if (data.payment_status === 'PAID') {
+    updatePayload.verified = true;
+  }
+
+  const { error } = await adminSupabase
+    .from('transactions')
+    .update(updatePayload)
+    .eq('id', data.transaction_id);
+
+  if (error) {
+    // If column doesn't exist yet in Supabase schema cache, provide clear message
+    if (error.message?.includes('amount_paid') || error.message?.includes('payment_status')) {
+      // Fallback update notes and verified if new columns are not yet applied via SQL migration
+      const fallbackPayload: Record<string, any> = {};
+      if (data.notes !== undefined) fallbackPayload.notes = data.notes?.trim() || null;
+      if (data.payment_status === 'PAID') fallbackPayload.verified = true;
+      if (Object.keys(fallbackPayload).length > 0) {
+        await adminSupabase.from('transactions').update(fallbackPayload).eq('id', data.transaction_id);
+      }
+      return {
+        error: 'Database migration pending: Please run add_sales_installments_and_payments.sql in your Supabase SQL editor to save installment columns. Notes were updated.',
+      };
+    }
     return { error: error.message };
   }
 
