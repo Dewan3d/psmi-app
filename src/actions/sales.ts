@@ -35,6 +35,7 @@ export async function getSales(filters?: {
       .from('transactions')
       .select(selectFields, { count: 'exact' })
       .eq('type', 'OUTBOUND')
+      .eq('verified', true)
       .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
       .order('created_at', { ascending: false });
 
@@ -204,6 +205,7 @@ export async function getSalesSummaryStats(filters?: {
     .from('transactions')
     .select('id, verified, amount_paid, total_order_amount')
     .eq('type', 'OUTBOUND')
+    .eq('verified', true)
     .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
 
   if (filters?.from_date) query = query.gte('created_at', filters.from_date);
@@ -217,6 +219,7 @@ export async function getSalesSummaryStats(filters?: {
       .from('transactions')
       .select('id, verified')
       .eq('type', 'OUTBOUND')
+      .eq('verified', true)
       .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
     if (filters?.from_date) fallbackQuery = fallbackQuery.gte('created_at', filters.from_date);
     if (filters?.to_date) fallbackQuery = fallbackQuery.lte('created_at', filters.to_date);
@@ -364,6 +367,17 @@ export async function updateSalePrice(data: {
     return { error: 'Price cannot be negative' };
   }
 
+  // Ensure outbound is verified before modifying sales prices
+  const { data: txn } = await supabase
+    .from('transactions')
+    .select('verified')
+    .eq('id', data.transaction_id)
+    .single();
+
+  if (!txn || !txn.verified) {
+    return { error: 'Invalid action: Sales pricing cannot be modified until the outbound has been verified.' };
+  }
+
   const { error } = await supabase
     .from('transaction_items')
     .update({ sale_price: data.new_price })
@@ -403,6 +417,17 @@ export async function batchUpdateSalePrices(data: {
 
   if (!data.serial_numbers || data.serial_numbers.length === 0) {
     return { error: 'No serial numbers provided' };
+  }
+
+  // Ensure outbound is verified before modifying sales prices
+  const { data: txn } = await supabase
+    .from('transactions')
+    .select('verified')
+    .eq('id', data.transaction_id)
+    .single();
+
+  if (!txn || !txn.verified) {
+    return { error: 'Invalid action: Sales pricing cannot be modified until the outbound has been verified.' };
   }
 
   const { error } = await supabase

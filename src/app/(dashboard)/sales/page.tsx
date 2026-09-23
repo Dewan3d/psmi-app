@@ -770,7 +770,7 @@ function SaleRow({
 }) {
   const { isViewer, isAdmin } = useUser();
   const [expanded, setExpanded] = useState(false);
-  const [showBatchPricing, setShowBatchPricing] = useState(false);
+  const [showDevicePrices, setShowDevicePrices] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   const badge = routeBadge[sale.route] || routeBadge.B2C;
@@ -954,19 +954,22 @@ function SaleRow({
                         </button>
                       )}
 
-                      {/* Quick Toggle for SKU Batch Price Adjuster */}
-                      {!isViewer && (
+                      {/* Admin-Only Modify Device Prices Toggle */}
+                      {isAdmin && (
                         <button
                           type="button"
-                          onClick={() => setShowBatchPricing(!showBatchPricing)}
+                          onClick={() => setShowDevicePrices(!showDevicePrices)}
                           className={`w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg transition-colors border cursor-pointer ${
-                            showBatchPricing
-                              ? 'bg-slate-100 text-slate-800 border-slate-300'
+                            showDevicePrices
+                              ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
                               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                           }`}
                         >
-                          <Sliders className="w-3.5 h-3.5 text-slate-500" />
-                          <span>{showBatchPricing ? 'Hide Batch Pricing' : 'Batch Adjust Prices'}</span>
+                          <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{showDevicePrices ? 'Hide Device Prices' : 'Modify Device Prices'}</span>
+                          <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 ml-auto font-mono">
+                            Admin
+                          </span>
                         </button>
                       )}
                     </div>
@@ -982,71 +985,74 @@ function SaleRow({
               {/* ── 2. Dedicated Notes & Terms Section ── */}
               <SaleNotesSection sale={sale} onSaved={onPriceUpdated} />
 
-              {/* ── 3. Collapsible Batch Price Editor ── */}
-              {showBatchPricing && !isViewer && (
-                <div className="p-3.5 bg-indigo-50/40 border border-indigo-100 rounded-xl space-y-2.5 animate-in fade-in-50 duration-150">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-slate-800">Quick Batch Price Update by Model / SKU:</p>
-                    <span className="text-[10px] text-indigo-600 font-medium">Applies to released units below</span>
+              {/* ── 3. Released Devices Table & Batch Price Adjuster (ADMIN ONLY & ON-DEMAND) ── */}
+              {isAdmin && showDevicePrices && (
+                <div className="space-y-3 pt-1 animate-in fade-in-50 duration-150">
+                  {/* Batch price editor per SKU */}
+                  <div className="p-3.5 bg-indigo-50/40 border border-indigo-100 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-slate-800">Quick Batch Price Update by Model / SKU:</p>
+                      <span className="text-[10px] text-indigo-600 font-medium">Applies to released units below</span>
+                    </div>
+                    {Object.values(skuGroups).map((group) => (
+                      <SkuBatchPriceEditor
+                        key={group.sku}
+                        transactionId={sale.transaction_id}
+                        sku={group.sku}
+                        modelName={group.model_name}
+                        items={group.items}
+                        onSaved={onPriceUpdated}
+                      />
+                    ))}
                   </div>
-                  {Object.values(skuGroups).map((group) => (
-                    <SkuBatchPriceEditor
-                      key={group.sku}
-                      transactionId={sale.transaction_id}
-                      sku={group.sku}
-                      modelName={group.model_name}
-                      items={group.items}
-                      onSaved={onPriceUpdated}
-                    />
-                  ))}
+
+                  {/* Released Items List Table */}
+                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                    <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Package className="w-3.5 h-3.5 text-slate-500" />
+                        <span className="text-xs font-bold text-slate-700">
+                          Released Devices ({sale.items.length} item{sale.items.length > 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        Released Subtotal: <strong className="text-slate-800">{formatNaira(sale.total_sale)}</strong>
+                      </span>
+                    </div>
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          <th className="px-4 py-2">Serial Number</th>
+                          <th className="px-4 py-2">SKU</th>
+                          <th className="px-4 py-2">Model</th>
+                          <th className="px-4 py-2 text-right">Sale Price</th>
+                          <th className="px-4 py-2 text-right">Cost Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sale.items.map((item) => (
+                          <tr key={item.serial_number} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                            <td className="px-4 py-2 text-xs font-mono text-slate-800">{item.serial_number}</td>
+                            <td className="px-4 py-2 text-xs font-mono text-slate-600">{item.sku}</td>
+                            <td className="px-4 py-2 text-xs text-slate-600">{item.model_name}</td>
+                            <td className="px-4 py-2 text-right">
+                              <InlinePriceEditor
+                                transactionId={sale.transaction_id}
+                                serialNumber={item.serial_number}
+                                currentPrice={item.sale_price}
+                                onSaved={onPriceUpdated}
+                              />
+                            </td>
+                            <td className="px-4 py-2 text-xs font-mono text-slate-500 text-right">
+                              {formatNaira(item.cost_price)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-
-              {/* ── 4. Released Items List Table ── */}
-              <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Package className="w-3.5 h-3.5 text-slate-500" />
-                    <span className="text-xs font-bold text-slate-700">
-                      Released Devices ({sale.items.length} item{sale.items.length > 1 ? 's' : ''})
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-mono text-slate-500">
-                    Released Subtotal: <strong className="text-slate-800">{formatNaira(sale.total_sale)}</strong>
-                  </span>
-                </div>
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                      <th className="px-4 py-2">Serial Number</th>
-                      <th className="px-4 py-2">SKU</th>
-                      <th className="px-4 py-2">Model</th>
-                      <th className="px-4 py-2 text-right">Sale Price</th>
-                      <th className="px-4 py-2 text-right">Cost Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sale.items.map((item) => (
-                      <tr key={item.serial_number} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                        <td className="px-4 py-2 text-xs font-mono text-slate-800">{item.serial_number}</td>
-                        <td className="px-4 py-2 text-xs font-mono text-slate-600">{item.sku}</td>
-                        <td className="px-4 py-2 text-xs text-slate-600">{item.model_name}</td>
-                        <td className="px-4 py-2 text-right">
-                          <InlinePriceEditor
-                            transactionId={sale.transaction_id}
-                            serialNumber={item.serial_number}
-                            currentPrice={item.sale_price}
-                            onSaved={onPriceUpdated}
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-xs font-mono text-slate-500 text-right">
-                          {formatNaira(item.cost_price)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             </div>
           </td>
         </tr>
