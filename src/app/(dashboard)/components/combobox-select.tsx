@@ -182,7 +182,7 @@ export default function ComboboxSelect({
       {/* Floating Dropdown Popover */}
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 z-[80] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden animate-fade-in ${
+          className={`absolute left-0 w-full min-w-full sm:min-w-[420px] max-w-[calc(100vw-32px)] z-[80] bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden animate-fade-in ${
             openUpwards ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
           }`}
         >

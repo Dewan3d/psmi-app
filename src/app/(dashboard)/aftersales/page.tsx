@@ -595,8 +595,12 @@ function NewReplacementModal({
               </div>
 
               {isManualSerialized ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-                  <div className="min-w-0">
+                <div className="space-y-3">
+                  {/* Full-width Product Selector */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Product to Replace
+                    </label>
                     <ComboboxSelect
                       options={products.map((p) => ({
                         value: p.sku,
@@ -621,72 +625,86 @@ function NewReplacementModal({
                       }))}
                       value={manualSku}
                       onChange={(val) => setManualSku(val)}
-                      placeholder="Select Model / SKU..."
+                      placeholder="Search and select product model or SKU..."
                       searchPlaceholder="Type model name or SKU..."
                       emptyText="No matching products found"
                     />
                   </div>
 
-                  <input
-                    type="text"
-                    placeholder="Original Serial #"
-                    value={manualOriginalSerial}
-                    onChange={(e) => setManualOriginalSerial(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                  />
+                  {/* 2-Column Serial Numbers */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Original Serial # (Faulty Unit)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Scan or enter faulty serial #"
+                        value={manualOriginalSerial}
+                        onChange={(e) => setManualOriginalSerial(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
+                      />
+                    </div>
 
-                  <input
-                    type="text"
-                    placeholder="New Serial #"
-                    value={manualReplacementSerial}
-                    onChange={(e) => setManualReplacementSerial(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                  />
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        New Serial # (Replacement Unit)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Scan or enter replacement serial #"
+                        value={manualReplacementSerial}
+                        onChange={(e) => setManualReplacementSerial(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
+                      />
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-                    <div className="sm:col-span-2 min-w-0">
-                      <ComboboxSelect
-                        options={products.map((p) => ({
-                          value: p.sku,
-                          label: p.model_name,
-                          sublabel: p.sku,
-                          badge:
-                            (p as any).category_badge === 'POWER_STATION'
-                              ? '⚡ Power Station'
-                              : (p as any).category_badge === 'SHS'
-                              ? '☀️ SHS'
-                              : (p as any).category_badge === 'ACCESSORIES'
-                              ? '🔌 Accessories'
-                              : undefined,
-                          badgeColor:
-                            (p as any).category_badge === 'POWER_STATION'
-                              ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
-                              : (p as any).category_badge === 'SHS'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                              : 'bg-amber-50 text-amber-700 border-amber-100',
-                          extra: p.is_serialized === false ? 'Non-serialized' : undefined,
-                          extraColor: 'bg-amber-50 text-amber-700 border-amber-200',
-                        }))}
-                        value={manualSku}
-                        onChange={(val) => setManualSku(val)}
-                        placeholder="Select Model / SKU..."
-                        searchPlaceholder="Type model name or SKU..."
-                        emptyText="No matching products found"
-                      />
-                    </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Accessory / Non-Serialized Product
+                    </label>
+                    <ComboboxSelect
+                      options={products.map((p) => ({
+                        value: p.sku,
+                        label: p.model_name,
+                        sublabel: p.sku,
+                        badge:
+                          (p as any).category_badge === 'POWER_STATION'
+                            ? '⚡ Power Station'
+                            : (p as any).category_badge === 'SHS'
+                            ? '☀️ SHS'
+                            : (p as any).category_badge === 'ACCESSORIES'
+                            ? '🔌 Accessories'
+                            : undefined,
+                        badgeColor:
+                          (p as any).category_badge === 'POWER_STATION'
+                            ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+                            : (p as any).category_badge === 'SHS'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            : 'bg-amber-50 text-amber-700 border-amber-100',
+                        extra: p.is_serialized === false ? 'Non-serialized' : undefined,
+                        extraColor: 'bg-amber-50 text-amber-700 border-amber-200',
+                      }))}
+                      value={manualSku}
+                      onChange={(val) => setManualSku(val)}
+                      placeholder="Search and select product model or SKU..."
+                      searchPlaceholder="Type model name or SKU..."
+                      emptyText="No matching products found"
+                    />
+                  </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-xs text-slate-500 whitespace-nowrap">Quantity:</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={manualQuantity}
-                        onChange={(e) => setManualQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg text-center font-medium"
-                      />
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-semibold text-slate-600">Quantity to Replace:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={manualQuantity}
+                      onChange={(e) => setManualQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-24 px-3 py-1.5 text-xs border border-slate-200 rounded-lg text-center font-medium"
+                    />
                   </div>
 
                   <div className="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-lg text-xs text-amber-800 flex items-center justify-between">
