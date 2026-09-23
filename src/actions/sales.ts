@@ -396,22 +396,8 @@ export async function getSalesTimeSeries(params: {
 
   // 1. Query outbound verified transactions in the range
   // Determine date bounds: prioritize sold_at (actual date of sale) over created_at
-  let queryFrom = params.from_date;
-  let queryTo = params.to_date;
-
-  // If filter_mode is 'today', anchor the chart around the current week (Sunday to Saturday)
-  // so the chart shows the daily trend leading up to and highlighting Today, strictly by DATE!
-  if (params.filter_mode === 'today') {
-    const currentDay = now.getDay();
-    const sunday = new Date(now);
-    sunday.setDate(now.getDate() - currentDay);
-    sunday.setHours(0, 0, 0, 0);
-    const saturday = new Date(sunday);
-    saturday.setDate(sunday.getDate() + 6);
-    saturday.setHours(23, 59, 59, 999);
-    queryFrom = sunday.toISOString();
-    queryTo = saturday.toISOString();
-  }
+  const queryFrom = params.from_date;
+  const queryTo = params.to_date;
 
   let query = supabase
     .from('transactions')

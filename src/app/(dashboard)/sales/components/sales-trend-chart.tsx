@@ -160,7 +160,7 @@ export default function SalesTrendChart({
               Loading chart trend...
             </div>
           </div>
-        ) : data.length === 0 || periodTotal === 0 ? (
+        ) : data.length === 0 ? (
           <div className="h-[220px] flex flex-col items-center justify-center text-center py-6">
             <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 mb-2 border border-slate-100">
               <Calendar className="w-5 h-5" />
