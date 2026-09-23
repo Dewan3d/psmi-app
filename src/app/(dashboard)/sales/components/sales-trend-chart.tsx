@@ -165,8 +165,14 @@ export default function SalesTrendChart({
             <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 mb-2 border border-slate-100">
               <Calendar className="w-5 h-5" />
             </div>
-            <p className="text-xs font-semibold text-slate-600">No sales recorded for this timeframe</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Sales will plot automatically as transactions are recorded.</p>
+            <p className="text-xs font-semibold text-slate-600">
+              {filterMode === 'date_range' ? 'Select Date Range' : 'No sales recorded for this timeframe'}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {filterMode === 'date_range'
+                ? 'Please choose both a From and To date above to load the sales trend.'
+                : 'Sales will plot automatically as transactions are recorded.'}
+            </p>
           </div>
         ) : (
           <div className="w-full overflow-x-auto">

@@ -140,21 +140,9 @@ export function getScopeDateRange(
           title: `${fLabel} – ${tLabel}`,
         };
       }
-      if (customFrom) {
-        const start = new Date(customFrom);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(customFrom);
-        end.setHours(23, 59, 59, 999);
-        return {
-          from: start.toISOString(),
-          to: end.toISOString(),
-          filter_mode: 'date_range',
-          title: start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-        };
-      }
       return {
         filter_mode: 'date_range',
-        title: 'Custom Date Range',
+        title: 'Select Date Range',
       };
     }
 
@@ -1256,10 +1244,27 @@ export default function SalesPage() {
   const [loading, setLoading] = useState(true);
   const [exportingFormat, setExportingFormat] = useState<'csv' | 'xlsx' | null>(null);
   const ITEMS_PER_PAGE = 20;
-
   const currentScopeConfig = getScopeDateRange(filterScope, customFromDate, customToDate);
 
   async function fetchData() {
+    // If user selected custom_date filter, do NOT trigger loading or queries until BOTH customFromDate and customToDate are filled!
+    if (filterScope === 'custom_date' && (!customFromDate || !customToDate)) {
+      setLoading(false);
+      setChartLoading(false);
+      setSales([]);
+      setTotalCount(0);
+      setStats(null);
+      setChartData([]);
+      setChartMeta({
+        period_total: 0,
+        period_units: 0,
+        period_txns: 0,
+        average_per_bucket: 0,
+        peak_bucket: null,
+      });
+      return;
+    }
+
     setLoading(true);
     setChartLoading(true);
 
@@ -1310,12 +1315,32 @@ export default function SalesPage() {
   }
 
   useEffect(() => {
+    // If Date Filter is selected, do NOT start loading or fetching until the FULL range (both From and To dates) is entered!
+    if (filterScope === 'custom_date' && (!customFromDate || !customToDate)) {
+      setLoading(false);
+      setChartLoading(false);
+      setSales([]);
+      setTotalCount(0);
+      setStats(null);
+      setChartData([]);
+      setChartMeta({
+        period_total: 0,
+        period_units: 0,
+        period_txns: 0,
+        average_per_bucket: 0,
+        peak_bucket: null,
+      });
+      return;
+    }
     fetchData();
   }, [filterScope, customFromDate, customToDate, routeFilter, currentPage]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
       setCurrentPage(1);
+      if (filterScope === 'custom_date' && (!customFromDate || !customToDate)) {
+        return;
+      }
       fetchData();
     }, 400);
     return () => clearTimeout(timeout);
@@ -1648,7 +1673,11 @@ export default function SalesPage() {
         ) : sales.length === 0 ? (
           <div className="text-center py-16">
             <ShoppingBag className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-            <p className="text-sm text-slate-400">No sales found for the selected filters.</p>
+            <p className="text-sm text-slate-400">
+              {filterScope === 'custom_date' && (!customFromDate || !customToDate)
+                ? 'Please select both a From and To date above to view sales records.'
+                : 'No sales found for the selected filters.'}
+            </p>
           </div>
         ) : (
           <>
