@@ -41,9 +41,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
-  getSales,
-  getSalesSummaryStats,
-  getSalesTimeSeries,
+  fetchSalesPageData,
   SalesTimeSeriesPoint,
   updateSalePrice,
   updateSaleDate,
@@ -1272,39 +1270,27 @@ export default function SalesPage() {
     const route = routeFilter !== 'all' ? routeFilter : undefined;
 
     try {
-      const [salesResult, statsResult, chartResult] = await Promise.all([
-        getSales({
-          from_date: range.from,
-          to_date: range.to,
-          route,
-          search: searchQuery || undefined,
-          limit: ITEMS_PER_PAGE,
-          offset: (currentPage - 1) * ITEMS_PER_PAGE,
-        }),
-        getSalesSummaryStats({
-          from_date: range.from,
-          to_date: range.to,
-          route,
-        }),
-        getSalesTimeSeries({
-          from_date: range.from,
-          to_date: range.to,
-          route,
-          filter_mode: range.filter_mode,
-        }),
-      ]);
+      const result = await fetchSalesPageData({
+        from_date: range.from,
+        to_date: range.to,
+        route,
+        search: searchQuery || undefined,
+        limit: ITEMS_PER_PAGE,
+        offset: (currentPage - 1) * ITEMS_PER_PAGE,
+        filter_mode: range.filter_mode,
+      });
 
-      setSales(salesResult.data);
-      setTotalCount(salesResult.total);
-      setStats(statsResult.data);
+      setSales(result.sales);
+      setTotalCount(result.total);
+      setStats(result.stats);
 
-      setChartData(chartResult.data);
+      setChartData(result.chart.data);
       setChartMeta({
-        period_total: chartResult.period_total,
-        period_units: chartResult.period_units,
-        period_txns: chartResult.period_txns,
-        average_per_bucket: chartResult.average_per_bucket,
-        peak_bucket: chartResult.peak_bucket,
+        period_total: result.chart.period_total,
+        period_units: result.chart.period_units,
+        period_txns: result.chart.period_txns,
+        average_per_bucket: result.chart.average_per_bucket,
+        peak_bucket: result.chart.peak_bucket,
       });
     } catch (err) {
       console.error('Failed to fetch sales data:', err);

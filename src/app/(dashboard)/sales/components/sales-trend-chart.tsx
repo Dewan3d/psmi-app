@@ -9,7 +9,7 @@
 // hydration issues and ultra-crisp aesthetics.
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { TrendingUp, Calendar, ShoppingCart, Award, ArrowUpRight, BarChart2 } from 'lucide-react';
 import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SalesTimeSeriesPoint } from '@/actions/sales';
@@ -38,6 +38,14 @@ export default function SalesTrendChart({
   loading = false,
 }: SalesTrendChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const lineRef = useRef<SVGPathElement>(null);
+  const [pathLength, setPathLength] = useState(0);
+
+  // Generate a unique key that changes when data changes to retrigger animation
+  const animationKey = useMemo(
+    () => data.map(d => `${d.key}:${d.amount}`).join('|'),
+    [data]
+  );
 
   // SVG dimensions & margins
   const chartWidth = 780;
@@ -97,6 +105,13 @@ export default function SalesTrendChart({
 
   const { linePath, areaPath } = generatePath();
   const activePoint = hoveredIndex !== null ? points[hoveredIndex] : null;
+
+  // Measure path length for stroke-dashoffset animation
+  useEffect(() => {
+    if (lineRef.current) {
+      setPathLength(lineRef.current.getTotalLength());
+    }
+  }, [animationKey]);
 
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.08)] border border-slate-100 overflow-hidden transition-all duration-200">
@@ -195,6 +210,23 @@ export default function SalesTrendChart({
                     <stop offset="50%" stopColor="#6366f1" />
                     <stop offset="100%" stopColor="#06b6d4" />
                   </linearGradient>
+
+                  {/* Animation keyframes */}
+                  <style>{`
+                    @keyframes chartAreaFadeIn {
+                      from { opacity: 0; }
+                      to { opacity: 1; }
+                    }
+                    .chart-area-animate {
+                      animation: chartAreaFadeIn 0.6s ease-out 0.3s both;
+                    }
+                    .chart-line-animate {
+                      transition: stroke-dashoffset 0.8s ease-out;
+                    }
+                    .chart-points-animate {
+                      animation: chartAreaFadeIn 0.4s ease-out 0.6s both;
+                    }
+                  `}</style>
                 </defs>
 
                 {/* Y-Axis Grid Lines & Labels */}
@@ -275,19 +307,41 @@ export default function SalesTrendChart({
                 })}
 
                 {/* Area Gradient Fill */}
-                <path d={areaPath} fill="url(#salesAreaGradient)" />
+                <path
+                  key={`area-${animationKey}`}
+                  d={areaPath}
+                  fill="url(#salesAreaGradient)"
+                  className="chart-area-animate"
+                />
 
                 {/* Main Curve Line */}
                 <path
+                  ref={lineRef}
+                  key={`line-${animationKey}`}
                   d={linePath}
                   fill="none"
                   stroke="url(#salesLineGradient)"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  className="chart-line-animate"
+                  strokeDasharray={pathLength || undefined}
+                  strokeDashoffset={0}
+                  style={pathLength ? {
+                    strokeDasharray: pathLength,
+                    strokeDashoffset: 0,
+                    animation: `chartLineDraw 0.8s ease-out forwards`,
+                  } : undefined}
                 />
+                <style>{`
+                  @keyframes chartLineDraw {
+                    from { stroke-dashoffset: ${pathLength}; }
+                    to { stroke-dashoffset: 0; }
+                  }
+                `}</style>
 
                 {/* Interactive Data Points */}
+                <g key={`points-${animationKey}`} className="chart-points-animate">
                 {points.map((p, idx) => {
                   const isHovered = hoveredIndex === idx;
                   const hasSales = p.amount > 0;
@@ -326,6 +380,7 @@ export default function SalesTrendChart({
                     </g>
                   );
                 })}
+                </g>
 
                 {/* Vertical hover indicator line */}
                 {activePoint && (

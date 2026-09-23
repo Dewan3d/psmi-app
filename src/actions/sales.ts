@@ -658,6 +658,389 @@ export async function getSalesTimeSeries(params: {
   };
 }
 
+// ── Unified Sales Page Data Fetcher (Performance Optimized) ────
+// Replaces 3 separate server actions × 4-5 sequential DB round-trips
+// with 2 parallel PostgREST queries using relational embedding.
+//
+// Query A: Paginated table data — transactions with profiles, items,
+//          inventory units, and products embedded in a single request.
+// Query B: All matching transactions — lightweight fields for computing
+//          KPI stats and chart time-series buckets in-memory.
+//
+// Net result: 12-15 sequential DB calls → 2 parallel calls.
+// ───────────────────────────────────────────────────────────────
+
+export async function fetchSalesPageData(params: {
+  from_date?: string;
+  to_date?: string;
+  route?: 'B2B' | 'B2C';
+  search?: string;
+  sku?: string;
+  limit?: number;
+  offset?: number;
+  filter_mode: 'week' | 'month' | 'today' | 'date_range' | 'preset';
+}): Promise<{
+  sales: SaleRecord[];
+  total: number;
+  stats: {
+    total_revenue: number;
+    total_cost: number;
+    gross_profit: number;
+    profit_margin: number;
+    units_sold: number;
+    transaction_count: number;
+    cash_collected: number;
+    balance_due: number;
+  };
+  chart: {
+    data: SalesTimeSeriesPoint[];
+    period_total: number;
+    period_units: number;
+    period_txns: number;
+    average_per_bucket: number;
+    peak_bucket: { label: string; amount: number } | null;
+  };
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const pageLimit = params.limit || 50;
+  const pageOffset = params.offset || 0;
+  const routes = params.route ? [params.route] : ['B2B', 'B2C'];
+
+  // ── Date filter helper (sold_at priority, created_at fallback) ──
+  const withDateFilters = (q: any): any => {
+    if (params.from_date && params.to_date) {
+      return q.or(`and(sold_at.gte.${params.from_date},sold_at.lte.${params.to_date}),and(sold_at.is.null,created_at.gte.${params.from_date},created_at.lte.${params.to_date})`);
+    } else if (params.from_date) {
+      return q.or(`sold_at.gte.${params.from_date},and(sold_at.is.null,created_at.gte.${params.from_date})`);
+    } else if (params.to_date) {
+      return q.or(`sold_at.lte.${params.to_date},and(sold_at.is.null,created_at.lte.${params.to_date})`);
+    }
+    return q;
+  };
+
+  // ── Default empty results ──────────────────────────────────
+  const emptyStats = {
+    total_revenue: 0, total_cost: 0, gross_profit: 0, profit_margin: 0,
+    units_sold: 0, transaction_count: 0, cash_collected: 0, balance_due: 0,
+  };
+  const emptyChart = {
+    data: [] as SalesTimeSeriesPoint[],
+    period_total: 0, period_units: 0, period_txns: 0,
+    average_per_bucket: 0, peak_bucket: null as { label: string; amount: number } | null,
+  };
+
+  // ══════════════════════════════════════════════════════════════
+  // QUERY A — Paginated table data with full embedded relations
+  // One request replaces: transactions + profiles + items + units + products
+  // ══════════════════════════════════════════════════════════════
+  let queryA = supabase
+    .from('transactions')
+    .select(`
+      id, tracking_number, route, customer_name, sales_manager,
+      created_at, sold_at, verified, user_id, notes,
+      amount_paid, payment_status, total_order_amount, total_units_ordered,
+      profiles ( full_name ),
+      transaction_items (
+        serial_number, sale_price, purchase_price,
+        inventory_units (
+          sku,
+          products ( model_name, cost_price, retail_price )
+        )
+      )
+    `, { count: 'exact' })
+    .eq('type', 'OUTBOUND')
+    .eq('verified', true)
+    .in('route', routes)
+    .order('sold_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false });
+
+  queryA = withDateFilters(queryA);
+
+  if (params.search) {
+    queryA = queryA.or(
+      `customer_name.ilike.%${params.search}%,tracking_number.ilike.%${params.search}%,sales_manager.ilike.%${params.search}%`
+    );
+  }
+
+  queryA = queryA.range(pageOffset, pageOffset + pageLimit - 1);
+
+  // ══════════════════════════════════════════════════════════════
+  // QUERY B — All matching transactions for stats + chart
+  // Lighter payload: only financial and temporal fields + items
+  // ══════════════════════════════════════════════════════════════
+  let queryB = supabase
+    .from('transactions')
+    .select(`
+      id, created_at, sold_at, amount_paid, total_order_amount,
+      transaction_items (
+        serial_number, sale_price, purchase_price,
+        inventory_units (
+          sku,
+          products ( model_name, cost_price )
+        )
+      )
+    `)
+    .eq('type', 'OUTBOUND')
+    .eq('verified', true)
+    .in('route', routes)
+    .order('sold_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+    .limit(10000);
+
+  queryB = withDateFilters(queryB);
+
+  // ══════════════════════════════════════════════════════════════
+  // Execute both queries in parallel (2 round-trips instead of 12+)
+  // ══════════════════════════════════════════════════════════════
+  const [resultA, resultB] = await Promise.all([queryA, queryB]);
+
+  if (resultA.error || resultB.error) {
+    return {
+      sales: [], total: 0, stats: emptyStats, chart: emptyChart,
+      error: resultA.error?.message || resultB.error?.message || 'Query failed',
+    };
+  }
+
+  const tableTxns: any[] = resultA.data || [];
+  const totalCount = resultA.count || 0;
+  const allTxns: any[] = resultB.data || [];
+
+  // ══════════════════════════════════════════════════════════════
+  // TRANSFORM: Query A → SaleRecord[] (for table display)
+  // ══════════════════════════════════════════════════════════════
+  let records: SaleRecord[] = tableTxns.map((txn: any) => {
+    const saleItems = (txn.transaction_items || []).map((item: any) => ({
+      serial_number: item.serial_number,
+      sku: item.inventory_units?.sku || 'UNKNOWN',
+      model_name: item.inventory_units?.products?.model_name || 'Unknown',
+      sale_price: item.sale_price,
+      cost_price: item.purchase_price ?? item.inventory_units?.products?.cost_price ?? null,
+    }));
+
+    const totalSale = saleItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
+    const totalCost = saleItems.reduce((sum: number, i: any) => sum + (i.cost_price || 0), 0);
+    const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : totalSale;
+    const paid = txn.amount_paid != null ? Number(txn.amount_paid) : (txn.verified ? dealTotal : 0);
+
+    return {
+      transaction_id: txn.id,
+      tracking_number: txn.tracking_number,
+      route: txn.route as 'B2B' | 'B2C',
+      customer_name: txn.customer_name,
+      sales_manager: txn.sales_manager || null,
+      sold_at: txn.sold_at || null,
+      created_at: txn.created_at,
+      verified: txn.verified,
+      user_name: txn.profiles?.full_name || 'Unknown',
+      notes: txn.notes || null,
+      amount_paid: paid,
+      payment_status: (txn.payment_status || (txn.verified ? 'PAID' : 'PENDING')) as 'PAID' | 'PARTIAL' | 'PENDING',
+      total_order_amount: dealTotal,
+      total_units_ordered: txn.total_units_ordered != null ? Number(txn.total_units_ordered) : saleItems.length,
+      items: saleItems,
+      total_sale: totalSale,
+      total_cost: totalCost,
+      profit: totalSale - totalCost,
+    };
+  });
+
+  // Post-fetch SKU filter (PostgREST can't filter parent rows by embedded child data)
+  if (params.sku) {
+    records = records.filter(r =>
+      r.items.some(i => i.sku.toUpperCase() === params.sku!.toUpperCase())
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // DERIVE: Stats from Query B (all matching transactions)
+  // ══════════════════════════════════════════════════════════════
+  let totalRevenue = 0;
+  let totalCostAll = 0;
+  let cashCollected = 0;
+  let balanceDue = 0;
+  let unitsSold = 0;
+
+  for (const txn of allTxns) {
+    const txnItems: any[] = txn.transaction_items || [];
+    const itemsTotal = txnItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
+    const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : itemsTotal;
+    const paid = txn.amount_paid != null ? Number(txn.amount_paid) : dealTotal;
+
+    totalRevenue += dealTotal;
+    cashCollected += paid;
+    if (dealTotal > paid) balanceDue += (dealTotal - paid);
+
+    unitsSold += txnItems.length;
+    for (const item of txnItems) {
+      totalCostAll += item.purchase_price ?? item.inventory_units?.products?.cost_price ?? 0;
+    }
+  }
+
+  const grossProfit = totalRevenue - totalCostAll;
+  const profitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+
+  // ══════════════════════════════════════════════════════════════
+  // DERIVE: Chart time-series buckets from Query B
+  // ══════════════════════════════════════════════════════════════
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  let buckets: SalesTimeSeriesPoint[] = [];
+
+  if (params.filter_mode === 'week' || params.filter_mode === 'today') {
+    // Week ALWAYS starts on Sunday
+    const currentDay = now.getDay();
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - currentDay);
+    sunday.setHours(0, 0, 0, 0);
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 0; i < 7; i++) {
+      const dayDate = new Date(sunday);
+      dayDate.setDate(sunday.getDate() + i);
+      const iso = dayDate.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      const isFuture = dayDate > now && !isToday;
+      buckets.push({
+        key: iso, label: `${dayNames[i]} (${dayDate.getDate()})`,
+        shortLabel: dayNames[i],
+        subLabel: isToday ? 'Today' : (isFuture ? 'Upcoming' : undefined),
+        dateStr: iso, amount: 0, unitsCount: 0, txnCount: 0,
+        isCurrent: isToday, isFuture,
+      });
+    }
+  } else if (params.filter_mode === 'month') {
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[month];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayDate = new Date(year, month, d);
+      const iso = dayDate.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      const isFuture = dayDate > now && !isToday;
+      buckets.push({
+        key: iso, label: `${monthName} ${d}`,
+        shortLabel: `${d}`,
+        subLabel: isToday ? 'Today' : (isFuture ? 'Upcoming' : undefined),
+        dateStr: iso, amount: 0, unitsCount: 0, txnCount: 0,
+        isCurrent: isToday, isFuture,
+      });
+    }
+  } else {
+    // Custom date range or rolling preset
+    const from = params.from_date ? new Date(params.from_date) : new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+    const to = params.to_date ? new Date(params.to_date) : now;
+    const startDay = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const endDay = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+    const diffDays = Math.max(1, Math.min(60, Math.round((endDay.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000)) + 1));
+
+    for (let i = 0; i < diffDays; i++) {
+      const d = new Date(startDay);
+      d.setDate(startDay.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const isToday = iso === todayIso;
+      buckets.push({
+        key: iso,
+        label: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        shortLabel: `${d.getDate()}`,
+        subLabel: isToday ? 'Today' : undefined,
+        dateStr: iso, amount: 0, unitsCount: 0, txnCount: 0,
+        isCurrent: isToday,
+      });
+    }
+  }
+
+  // Map transactions into time buckets
+  const bucketMap = new Map(buckets.map(b => [b.key, b]));
+  const bucketProductsMap = new Map<string, Map<string, number>>();
+
+  for (const txn of allTxns) {
+    const rawDate = txn.sold_at || txn.created_at;
+    let targetKey = '';
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+      targetKey = rawDate.slice(0, 10);
+    } else if (rawDate) {
+      try { targetKey = new Date(rawDate).toISOString().slice(0, 10); } catch {}
+    }
+
+    const bucket = bucketMap.get(targetKey);
+    if (bucket) {
+      const txnItems: any[] = txn.transaction_items || [];
+      const itemsTotal = txnItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
+      const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : itemsTotal;
+
+      bucket.amount += dealTotal;
+      bucket.unitsCount += txnItems.length;
+      bucket.txnCount += 1;
+
+      // Track products for top product per bucket
+      let productCounter = bucketProductsMap.get(bucket.key);
+      if (!productCounter) {
+        productCounter = new Map<string, number>();
+        bucketProductsMap.set(bucket.key, productCounter);
+      }
+      for (const item of txnItems) {
+        const model = item.inventory_units?.products?.model_name || item.inventory_units?.sku || 'Unknown';
+        productCounter.set(model, (productCounter.get(model) || 0) + 1);
+      }
+    }
+  }
+
+  // Populate top product per bucket
+  for (const bucket of buckets) {
+    const pMap = bucketProductsMap.get(bucket.key);
+    if (pMap && pMap.size > 0) {
+      let topName = '';
+      let topCount = 0;
+      for (const [name, count] of pMap.entries()) {
+        if (count > topCount) { topCount = count; topName = name; }
+      }
+      bucket.topProduct = `${topName} (${topCount})`;
+    }
+  }
+
+  // Chart aggregation
+  const periodTotal = buckets.reduce((acc, b) => acc + b.amount, 0);
+  const periodUnits = buckets.reduce((acc, b) => acc + b.unitsCount, 0);
+  const periodTxns = buckets.reduce((acc, b) => acc + b.txnCount, 0);
+  const activeBucketsCount = buckets.filter(b => !b.isFuture).length || 1;
+  const avgPerBucket = Math.round(periodTotal / activeBucketsCount);
+
+  let peakBucket: { label: string; amount: number } | null = null;
+  for (const b of buckets) {
+    if ((!peakBucket || b.amount > peakBucket.amount) && b.amount > 0) {
+      peakBucket = { label: b.label, amount: b.amount };
+    }
+  }
+
+  return {
+    sales: records,
+    total: totalCount,
+    stats: {
+      total_revenue: totalRevenue,
+      total_cost: totalCostAll,
+      gross_profit: grossProfit,
+      profit_margin: Math.round(profitMargin * 10) / 10,
+      units_sold: unitsSold,
+      transaction_count: allTxns.length,
+      cash_collected: cashCollected,
+      balance_due: balanceDue,
+    },
+    chart: {
+      data: buckets,
+      period_total: periodTotal,
+      period_units: periodUnits,
+      period_txns: periodTxns,
+      average_per_bucket: avgPerBucket,
+      peak_bucket: peakBucket,
+    },
+    error: null,
+  };
+}
+
 // ── Update a sale price on a specific transaction item ─────────
 export async function updateSalePrice(data: {
   transaction_id: string;
