@@ -325,17 +325,17 @@ export async function getSalesSummaryStats(filters?: {
   const unitsSold = (items || []).length;
 
   for (const item of items || []) {
-    totalRevenue += item.sale_price || 0;
     totalCost += item.purchase_price ?? costFallbackMap.get(item.serial_number) ?? 0;
   }
 
-  // Calculate Cash Collected and Balance Due per transaction
+  // Calculate Revenue, Cash Collected and Balance Due per transaction using agreed deal totals
   for (const txn of transactions) {
     const txnItems = itemsByTxn.get(txn.id) || [];
     const itemsTotal = txnItems.reduce((sum: number, i: any) => sum + (i.sale_price || 0), 0);
     const dealTotal = txn.total_order_amount != null ? Number(txn.total_order_amount) : itemsTotal;
     const paid = txn.amount_paid != null ? Number(txn.amount_paid) : (txn.verified ? dealTotal : 0);
 
+    totalRevenue += dealTotal;
     cashCollected += paid;
     if (dealTotal > paid) {
       balanceDue += (dealTotal - paid);
