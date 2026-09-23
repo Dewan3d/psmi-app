@@ -59,6 +59,11 @@ module.exports = {
         'scale-in': 'scaleIn 0.2s ease-out',
         'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
         'shimmer': 'shimmer 1.5s ease-in-out infinite',
+        'modal-in': 'modalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'modal-out': 'modalOut 0.16s cubic-bezier(0.7, 0, 0.84, 0) forwards',
+        'backdrop-in': 'backdropIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'backdrop-out': 'backdropOut 0.16s cubic-bezier(0.7, 0, 0.84, 0) forwards',
+        'accordion-down': 'accordionDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards',
       },
       keyframes: {
         fadeIn: {
@@ -88,6 +93,26 @@ module.exports = {
         shimmer: {
           '0%': { backgroundPosition: '-200% 0' },
           '100%': { backgroundPosition: '200% 0' },
+        },
+        modalIn: {
+          '0%': { opacity: '0', transform: 'scale(0.95) translateY(8px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
+        modalOut: {
+          '0%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+          '100%': { opacity: '0', transform: 'scale(0.97) translateY(6px)' },
+        },
+        backdropIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        backdropOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        accordionDown: {
+          '0%': { opacity: '0', transform: 'translateY(-6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       },
       backdropBlur: {

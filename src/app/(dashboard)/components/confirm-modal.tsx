@@ -9,7 +9,7 @@
 
 import { ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Loader2, X } from 'lucide-react';
-import Portal from './portal';
+import { ModalWrapper } from './modal-wrapper';
 
 export interface ConfirmModalProps {
   isOpen: boolean;
@@ -36,14 +36,10 @@ export default function ConfirmModal({
   isLoading = false,
   icon,
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <Portal>
-      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
-        <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden transform transition-all">
-        <div className="p-6">
-          <div className="flex items-start gap-4">
+    <ModalWrapper isOpen={isOpen} onClose={onClose} maxWidth="max-w-md" zIndex="z-[110]">
+      <div className="p-6">
+        <div className="flex items-start gap-4">
             <div
               className={`p-3 rounded-2xl flex-shrink-0 ${
                 isDestructive
@@ -100,8 +96,6 @@ export default function ConfirmModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
-    </Portal>
+    </ModalWrapper>
   );
 }

@@ -45,6 +45,7 @@ import { createClient } from '@/lib/supabase/client';
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
+import { ModalWrapper } from '../components/modal-wrapper';
 import { useUser } from '../components/user-context';
 
 type InboundSummary = {
@@ -366,15 +367,15 @@ function NewInboundModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
+    <ModalWrapper isOpen={true} onClose={onClose} maxWidth="max-w-lg" zIndex="z-50">
+      <div>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">New Inbound Receipt</h2>
             <p className="text-xs text-slate-500 mt-0.5">Log a shipment into the warehouse</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer">
             <X className="w-4 h-4 text-slate-500" />
           </button>
         </div>
@@ -774,7 +775,7 @@ function NewInboundModal({
         }
         confirmText="Yes, Inbound Items"
       />
-    </div>
+    </ModalWrapper>
   );
 }
 
@@ -930,47 +931,50 @@ export default function InboundPage() {
       )}
 
       {/* Post-Inbound Pending Serials Handoff Modal (Option A) */}
-      {pendingHandoff.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 text-center space-y-4 border border-slate-100">
-            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200/60">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Shipment Logged — Serials Pending</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                <strong>{pendingHandoff.qty} unit(s)</strong> of <strong>{pendingHandoff.modelName}</strong> were successfully received into the warehouse.
-              </p>
-            </div>
-            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-xs text-amber-800 text-left space-y-1">
-              <p className="font-semibold text-amber-900">Serial Number Assignment Needed</p>
-              <p className="text-amber-700 leading-relaxed">
-                These units have been registered with temporary slots. Before they can be selected for Outbound dispatch or sales, their physical barcode serials must be assigned.
-              </p>
-            </div>
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  const id = pendingHandoff.txnId;
-                  setPendingHandoff((prev) => ({ ...prev, isOpen: false }));
-                  router.push(`/inbound/${id}`);
-                }}
-                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-              >
-                Assign Serial Numbers Now <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingHandoff((prev) => ({ ...prev, isOpen: false }))}
-                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors cursor-pointer"
-              >
-                Keep Pending & Return to History
-              </button>
-            </div>
+      <ModalWrapper
+        isOpen={pendingHandoff.isOpen}
+        onClose={() => setPendingHandoff((prev) => ({ ...prev, isOpen: false }))}
+        maxWidth="max-w-md"
+        zIndex="z-50"
+      >
+        <div className="p-6 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200/60">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Shipment Logged — Serials Pending</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              <strong>{pendingHandoff.qty} unit(s)</strong> of <strong>{pendingHandoff.modelName}</strong> were successfully received into the warehouse.
+            </p>
+          </div>
+          <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-xs text-amber-800 text-left space-y-1">
+            <p className="font-semibold text-amber-900">Serial Number Assignment Needed</p>
+            <p className="text-amber-700 leading-relaxed">
+              These units have been registered with temporary slots. Before they can be selected for Outbound dispatch or sales, their physical barcode serials must be assigned.
+            </p>
+          </div>
+          <div className="space-y-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                const id = pendingHandoff.txnId;
+                setPendingHandoff((prev) => ({ ...prev, isOpen: false }));
+                router.push(`/inbound/${id}`);
+              }}
+              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              Assign Serial Numbers Now <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingHandoff((prev) => ({ ...prev, isOpen: false }))}
+              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors cursor-pointer"
+            >
+              Keep Pending & Return to History
+            </button>
           </div>
         </div>
-      )}
+      </ModalWrapper>
 
       {/* Delete Confirmation Modal */}
       <ConfirmModal

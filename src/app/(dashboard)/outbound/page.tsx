@@ -57,6 +57,7 @@ import { VerificationDocument } from '@/lib/types/database';
 import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
+import { ModalWrapper } from '../components/modal-wrapper';
 import { useUser } from '../components/user-context';
 
 type OutboundSummary = {
@@ -216,8 +217,8 @@ function VerificationPanel({
   const allUploaded = DOC_TYPES.every((d) => (docs[d.key] || []).length > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl lg:max-w-3xl overflow-hidden animate-fade-in max-h-[92vh] flex flex-col">
+    <ModalWrapper isOpen={true} onClose={onClose} maxWidth="max-w-2xl lg:max-w-3xl" zIndex="z-50">
+      <div className="max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
           <div>
@@ -361,7 +362,7 @@ function VerificationPanel({
           </button>
         </div>
       </div>
-    </div>
+    </ModalWrapper>
   );
 }
 
@@ -626,8 +627,8 @@ function NewOutboundModal({
   const uniqueProductCount = Object.keys(groupedSelected).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] min-h-[660px] max-h-[920px] overflow-hidden animate-fade-in flex flex-col my-auto border border-slate-100">
+    <ModalWrapper isOpen={true} onClose={onClose} maxWidth="max-w-5xl" zIndex="z-50">
+      <div className="h-[90vh] min-h-[660px] max-h-[920px] flex flex-col border border-slate-100">
         {/* Header with Stepper */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0 bg-white">
           <div>
@@ -1715,7 +1716,7 @@ function NewOutboundModal({
         }
         confirmText="Yes, Create Outbound"
       />
-    </div>
+    </ModalWrapper>
   );
 }
 

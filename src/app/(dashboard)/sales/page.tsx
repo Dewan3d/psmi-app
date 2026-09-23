@@ -52,6 +52,7 @@ import {
 import { formatNaira, formatNairaCompact } from '@/lib/utils/currency';
 import { SaleRecord } from '@/lib/types/database';
 import { useUser } from '../components/user-context';
+import { ModalWrapper } from '../components/modal-wrapper';
 
 // ── Route badge config ────────────────────────────────────────
 const routeBadge: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -519,69 +520,62 @@ function EditPaymentModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 overflow-y-auto"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-lg overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-base">Edit Payment & Terms</h3>
-              <p className="text-xs text-slate-500">
-                Tracking #{sale.tracking_number || sale.transaction_id.slice(0, 8)} • Admin Exclusive
-              </p>
-            </div>
+    <ModalWrapper isOpen={isOpen} onClose={onClose} maxWidth="max-w-lg" zIndex="z-50">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+            <CreditCard className="w-5 h-5" />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div>
+            <h3 className="font-bold text-slate-900 text-base">Edit Payment & Terms</h3>
+            <p className="text-xs text-slate-500">
+              Tracking #{sale.tracking_number || sale.transaction_id.slice(0, 8)} • Admin Exclusive
+            </p>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+      <form onSubmit={handleSave} className="p-6 space-y-4">
+        {error && (
+          <div className="p-3 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Agreed Total Order Amount (₦)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">₦</span>
-                <input
-                  type="text"
-                  value={totalOrderAmount}
-                  onChange={(e) => setTotalOrderAmount(e.target.value)}
-                  placeholder="e.g. 100,000"
-                  className="w-full pl-7 pr-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
-                  required
-                />
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Released Items Value: {formatNaira(sale.total_sale)}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Total Units in Agreement
-              </label>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Agreed Total Order Amount (₦)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">₦</span>
               <input
+                type="text"
+                value={totalOrderAmount}
+                onChange={(e) => setTotalOrderAmount(e.target.value)}
+                placeholder="e.g. 100,000"
+                className="w-full pl-7 pr-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
+                required
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Released Items Value: {formatNaira(sale.total_sale)}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Total Units in Agreement
+            </label>
+            <input
                 type="number"
                 min={sale.items.length}
                 value={totalUnitsOrdered}
@@ -589,79 +583,78 @@ function EditPaymentModal({
                 placeholder={String(sale.items.length)}
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
               />
-              <p className="text-[10px] text-slate-400 mt-1">
-                Currently Released: {sale.items.length} unit{sale.items.length > 1 ? 's' : ''}
-              </p>
-            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Currently Released: {sale.items.length} unit{sale.items.length > 1 ? 's' : ''}
+            </p>
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Amount Paid So Far (₦)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">₦</span>
-                <input
-                  type="text"
-                  value={amountPaid}
-                  onChange={(e) => setAmountPaid(e.target.value)}
-                  placeholder="0"
-                  className="w-full pl-7 pr-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Payment Status
-              </label>
-              <select
-                value={paymentStatus}
-                onChange={(e) => setPaymentStatus(e.target.value as any)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-medium"
-              >
-                <option value="PAID">Paid in Full</option>
-                <option value="PARTIAL">Installment / Partial</option>
-                <option value="PENDING">Pending / Unpaid</option>
-              </select>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Amount Paid So Far (₦)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-slate-400">₦</span>
+              <input
+                type="text"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                placeholder="0"
+                className="w-full pl-7 pr-3 py-2 text-sm font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
+                required
+              />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Payment / Terms Notes
+              Payment Status
             </label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Customer paid initial ₦30k transfer on Sept 23; 3 units released. Balance of ₦70k due on Oct 15 before remaining 7 units can be dispatched."
-              className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white resize-none"
-            />
+            <select
+              value={paymentStatus}
+              onChange={(e) => setPaymentStatus(e.target.value as any)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white font-medium"
+            >
+              <option value="PAID">Paid in Full</option>
+              <option value="PARTIAL">Installment / Partial</option>
+              <option value="PENDING">Pending / Unpaid</option>
+            </select>
           </div>
+        </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
-            >
-              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              Save Payment Details
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">
+            Payment / Terms Notes
+          </label>
+          <textarea
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. Customer paid initial ₦30k transfer on Sept 23; 3 units released. Balance of ₦70k due on Oct 15 before remaining 7 units can be dispatched."
+            className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white resize-none"
+          />
+        </div>
+
+        <div className="pt-2 flex items-center justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isPending}
+            className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+          >
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            Save Payment Details
+          </button>
+        </div>
+      </form>
+    </ModalWrapper>
   );
 }
 
@@ -870,17 +863,17 @@ function SaleRow({
           </span>
         </td>
         <td className="px-4 py-3.5 text-center">
-          {expanded ? (
-            <ChevronUp className="w-4 h-4 text-slate-400 inline" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-slate-400 inline" />
-          )}
+          <ChevronDown
+            className={`w-4 h-4 text-slate-400 inline transition-transform duration-250 ease-out ${
+              expanded ? 'rotate-180 text-indigo-600' : 'rotate-0'
+            }`}
+          />
         </td>
       </tr>
 
-      {/* Expanded Order Overview & Details */}
+      {/* Expanded Order Overview & Details with smooth accordion transition */}
       {expanded && (
-        <tr className="bg-slate-50/50">
+        <tr className="bg-slate-50/50 animate-accordion-down">
           <td colSpan={9} className="px-4 py-4">
             <div className="space-y-4">
               {/* ── 1. Order Overview Top Cards ── */}

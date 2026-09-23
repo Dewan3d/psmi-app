@@ -9,6 +9,7 @@
 
 import { ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, AlertCircle, X } from 'lucide-react';
+import { ModalWrapper } from './modal-wrapper';
 
 export interface FeedbackModalProps {
   isOpen: boolean;
@@ -27,16 +28,13 @@ export default function FeedbackModal({
   message,
   buttonText,
 }: FeedbackModalProps) {
-  if (!isOpen) return null;
-
   const isSuccess = type === 'success';
   const isError = type === 'error';
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md overflow-hidden transform transition-all">
-        <div className="p-6">
-          <div className="flex items-start gap-4">
+    <ModalWrapper isOpen={isOpen} onClose={onClose} maxWidth="max-w-md" zIndex="z-[70]">
+      <div className="p-6">
+        <div className="flex items-start gap-4">
             <div
               className={`p-3 rounded-2xl flex-shrink-0 ${
                 isSuccess
@@ -86,7 +84,6 @@ export default function FeedbackModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </ModalWrapper>
   );
 }
