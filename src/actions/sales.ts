@@ -29,18 +29,30 @@ export async function getSales(filters?: {
   const supabase = await createClient();
 
   // 1. Fetch outbound transactions (B2B + B2C only)
-  // Try querying with sold_at; if migration hasn't been run yet, fallback gracefully to query without sold_at
-  const buildQuery = (selectFields: string) => {
+  // Query with sold_at prioritizing the actual date of sale; fallback gracefully if schema requires
+  const buildQuery = (selectFields: string, useSoldAt: boolean = true) => {
     let q = supabase
       .from('transactions')
       .select(selectFields, { count: 'exact' })
       .eq('type', 'OUTBOUND')
       .eq('verified', true)
-      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
-      .order('created_at', { ascending: false });
+      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
 
-    if (filters?.from_date) q = q.gte('created_at', filters.from_date);
-    if (filters?.to_date) q = q.lte('created_at', filters.to_date);
+    if (useSoldAt) {
+      q = q.order('sold_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
+      if (filters?.from_date && filters?.to_date) {
+        q = q.or(`and(sold_at.gte.${filters.from_date},sold_at.lte.${filters.to_date}),and(sold_at.is.null,created_at.gte.${filters.from_date},created_at.lte.${filters.to_date})`);
+      } else if (filters?.from_date) {
+        q = q.or(`sold_at.gte.${filters.from_date},and(sold_at.is.null,created_at.gte.${filters.from_date})`);
+      } else if (filters?.to_date) {
+        q = q.or(`sold_at.lte.${filters.to_date},and(sold_at.is.null,created_at.lte.${filters.to_date})`);
+      }
+    } else {
+      q = q.order('created_at', { ascending: false });
+      if (filters?.from_date) q = q.gte('created_at', filters.from_date);
+      if (filters?.to_date) q = q.lte('created_at', filters.to_date);
+    }
+
     if (filters?.search) {
       q = q.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%,sales_manager.ilike.%${filters.search}%`);
     }
@@ -53,7 +65,7 @@ export async function getSales(filters?: {
   const baseFields = 'id, tracking_number, route, customer_name, sales_manager, created_at, verified, user_id, notes';
   const extendedFields = `${baseFields}, sold_at, amount_paid, payment_status, total_order_amount, total_units_ordered`;
 
-  let { data: transactions, count, error: txnError } = await buildQuery(extendedFields);
+  let { data: transactions, count, error: txnError } = await buildQuery(extendedFields, true);
 
   // If new columns or sold_at don't exist yet, fallback gracefully
   if (txnError && (
@@ -64,9 +76,9 @@ export async function getSales(filters?: {
     txnError.message?.includes('sold_at')
   )) {
     // Try with sold_at first
-    let fallbackRes = await buildQuery(`${baseFields}, sold_at`);
+    let fallbackRes = await buildQuery(`${baseFields}, sold_at`, true);
     if (fallbackRes.error && fallbackRes.error.message?.includes('sold_at')) {
-      fallbackRes = await buildQuery(baseFields);
+      fallbackRes = await buildQuery(baseFields, false);
     }
     transactions = fallbackRes.data;
     count = fallbackRes.count;
@@ -203,18 +215,23 @@ export async function getSalesSummaryStats(filters?: {
   // Get matching transactions with financial details
   let query = supabase
     .from('transactions')
-    .select('id, verified, amount_paid, total_order_amount')
+    .select('id, verified, sold_at, created_at, amount_paid, total_order_amount')
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
     .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
 
-  if (filters?.from_date) query = query.gte('created_at', filters.from_date);
-  if (filters?.to_date) query = query.lte('created_at', filters.to_date);
+  if (filters?.from_date && filters?.to_date) {
+    query = query.or(`and(sold_at.gte.${filters.from_date},sold_at.lte.${filters.to_date}),and(sold_at.is.null,created_at.gte.${filters.from_date},created_at.lte.${filters.to_date})`);
+  } else if (filters?.from_date) {
+    query = query.or(`sold_at.gte.${filters.from_date},and(sold_at.is.null,created_at.gte.${filters.from_date})`);
+  } else if (filters?.to_date) {
+    query = query.or(`sold_at.lte.${filters.to_date},and(sold_at.is.null,created_at.lte.${filters.to_date})`);
+  }
 
   let { data: transactions, error: txnError } = await query;
 
   // Fallback if columns are not yet recognized in cache
-  if (txnError && (txnError.message?.includes('amount_paid') || txnError.message?.includes('total_order_amount'))) {
+  if (txnError && (txnError.message?.includes('amount_paid') || txnError.message?.includes('total_order_amount') || txnError.message?.includes('sold_at'))) {
     let fallbackQuery = supabase
       .from('transactions')
       .select('id, verified')
@@ -374,17 +391,44 @@ export async function getSalesTimeSeries(params: {
 }> {
   const supabase = await createClient();
 
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+
   // 1. Query outbound verified transactions in the range
+  // Determine date bounds: prioritize sold_at (actual date of sale) over created_at
+  let queryFrom = params.from_date;
+  let queryTo = params.to_date;
+
+  // If filter_mode is 'today', anchor the chart around the current week (Sunday to Saturday)
+  // so the chart shows the daily trend leading up to and highlighting Today, strictly by DATE!
+  if (params.filter_mode === 'today') {
+    const currentDay = now.getDay();
+    const sunday = new Date(now);
+    sunday.setDate(now.getDate() - currentDay);
+    sunday.setHours(0, 0, 0, 0);
+    const saturday = new Date(sunday);
+    saturday.setDate(sunday.getDate() + 6);
+    saturday.setHours(23, 59, 59, 999);
+    queryFrom = sunday.toISOString();
+    queryTo = saturday.toISOString();
+  }
+
   let query = supabase
     .from('transactions')
     .select('id, created_at, sold_at, amount_paid, total_order_amount')
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
     .in('route', params.route ? [params.route] : ['B2B', 'B2C'])
+    .order('sold_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true });
 
-  if (params.from_date) query = query.gte('created_at', params.from_date);
-  if (params.to_date) query = query.lte('created_at', params.to_date);
+  if (queryFrom && queryTo) {
+    query = query.or(`and(sold_at.gte.${queryFrom},sold_at.lte.${queryTo}),and(sold_at.is.null,created_at.gte.${queryFrom},created_at.lte.${queryTo})`);
+  } else if (queryFrom) {
+    query = query.or(`sold_at.gte.${queryFrom},and(sold_at.is.null,created_at.gte.${queryFrom})`);
+  } else if (queryTo) {
+    query = query.or(`sold_at.lte.${queryTo},and(sold_at.is.null,created_at.lte.${queryTo})`);
+  }
 
   let { data: transactions, error: txnError } = await query;
 
@@ -397,8 +441,8 @@ export async function getSalesTimeSeries(params: {
       .eq('verified', true)
       .in('route', params.route ? [params.route] : ['B2B', 'B2C'])
       .order('created_at', { ascending: true });
-    if (params.from_date) fallbackQuery = fallbackQuery.gte('created_at', params.from_date);
-    if (params.to_date) fallbackQuery = fallbackQuery.lte('created_at', params.to_date);
+    if (queryFrom) fallbackQuery = fallbackQuery.gte('created_at', queryFrom);
+    if (queryTo) fallbackQuery = fallbackQuery.lte('created_at', queryTo);
     const fallbackRes = await fallbackQuery;
     transactions = fallbackRes.data as any;
     txnError = fallbackRes.error;
@@ -458,12 +502,10 @@ export async function getSalesTimeSeries(params: {
     itemsByTxn.set(item.transaction_id, arr);
   }
 
-  // 3. Build time buckets depending on filter_mode
-  const now = new Date();
-  const todayIso = now.toISOString().slice(0, 10);
+  // 3. Build time buckets depending on filter_mode (strictly by DATE)
   let buckets: SalesTimeSeriesPoint[] = [];
 
-  if (params.filter_mode === 'week') {
+  if (params.filter_mode === 'week' || params.filter_mode === 'today') {
     // Week ALWAYS starts on Sunday
     const currentDay = now.getDay(); // 0 is Sunday, 6 is Saturday
     const sunday = new Date(now);
@@ -518,33 +560,6 @@ export async function getSalesTimeSeries(params: {
         isFuture,
       });
     }
-  } else if (params.filter_mode === 'today') {
-    // Today by 2-hour or 4-hour slots
-    const hours = [
-      { start: 0, end: 4, label: '12am - 4am', short: '00-04' },
-      { start: 4, end: 8, label: '4am - 8am', short: '04-08' },
-      { start: 8, end: 12, label: '8am - 12pm', short: '08-12' },
-      { start: 12, end: 16, label: '12pm - 4pm', short: '12-16' },
-      { start: 16, end: 20, label: '4pm - 8pm', short: '16-20' },
-      { start: 20, end: 24, label: '8pm - 12am', short: '20-24' },
-    ];
-    const currentHour = now.getHours();
-    for (const h of hours) {
-      const isCurrent = currentHour >= h.start && currentHour < h.end;
-      const isFuture = currentHour < h.start;
-      buckets.push({
-        key: `hour_${h.start}`,
-        label: h.label,
-        shortLabel: h.short,
-        subLabel: isCurrent ? 'Now' : (isFuture ? 'Upcoming' : undefined),
-        dateStr: todayIso,
-        amount: 0,
-        unitsCount: 0,
-        txnCount: 0,
-        isCurrent,
-        isFuture,
-      });
-    }
   } else {
     // Custom date range or rolling preset (7d, 30d, 90d, all)
     // Generate daily buckets across the span
@@ -575,22 +590,20 @@ export async function getSalesTimeSeries(params: {
     }
   }
 
-  // 4. Map transactions into buckets
+  // 4. Map transactions into buckets using date of sale (sold_at)
   const bucketMap = new Map(buckets.map((b) => [b.key, b]));
   const bucketProductsMap = new Map<string, Map<string, number>>();
 
   for (const txn of txns) {
-    const effectiveDate = new Date(txn.sold_at || txn.created_at);
-    const txnDateIso = effectiveDate.toISOString().slice(0, 10);
-
-    let targetBucketKey: string | undefined;
-
-    if (params.filter_mode === 'today') {
-      const hour = effectiveDate.getHours();
-      const slotStart = Math.floor(hour / 4) * 4;
-      targetBucketKey = `hour_${slotStart}`;
-    } else {
-      targetBucketKey = txnDateIso;
+    // Date of Sale (sold_at) takes precedence over created_at
+    const rawDate = txn.sold_at || txn.created_at;
+    let targetBucketKey = '';
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(rawDate)) {
+      targetBucketKey = rawDate.slice(0, 10);
+    } else if (rawDate) {
+      try {
+        targetBucketKey = new Date(rawDate).toISOString().slice(0, 10);
+      } catch {}
     }
 
     const bucket = bucketMap.get(targetBucketKey);

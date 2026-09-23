@@ -117,7 +117,7 @@ export default function SalesTrendChart({
           <p className="text-xs text-slate-500 mt-1">
             {filterMode === 'week' && 'Tracking revenue day-by-day (Week starts Sunday)'}
             {filterMode === 'month' && 'Calendar month daily sales distribution'}
-            {filterMode === 'today' && 'Intraday sales pacing by time slot'}
+            {filterMode === 'today' && 'Daily sales trend (highlighting Today)'}
             {(filterMode === 'date_range' || filterMode === 'preset') && 'Daily sales amount trend over selected timeframe'}
           </p>
         </div>
@@ -337,51 +337,93 @@ export default function SalesTrendChart({
                 )}
               </svg>
 
-              {/* Floating Tooltip */}
-              {activePoint && (
-                <div
-                  className="absolute pointer-events-none z-20 transition-all duration-150 transform -translate-x-1/2 -translate-y-full"
-                  style={{
-                    left: `${(activePoint.x / chartWidth) * 100}%`,
-                    top: `${Math.max(10, (activePoint.y / chartHeight) * 100 - 8)}%`,
-                  }}
-                >
-                  <div className="bg-slate-900 text-white rounded-xl shadow-xl px-3 py-2 text-xs min-w-[150px] border border-slate-700/60 backdrop-blur-md">
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-700/60 pb-1 mb-1">
-                      <span className="font-bold text-slate-100 flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-indigo-400" />
-                        {activePoint.label}
-                      </span>
-                      {activePoint.subLabel && (
-                        <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded ${
-                          activePoint.isCurrent ? 'bg-indigo-500/30 text-indigo-300' : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {activePoint.subLabel}
-                        </span>
+              {/* Floating Tooltip (Smart positioning to never get cut off) */}
+              {activePoint && (() => {
+                // If point is in the upper half of the chart, flip tooltip below the point so it never clips top boundary
+                const isNearTop = activePoint.y < 115;
+                // If point is near the left or right edges, shift horizontally so it never clips container boundaries
+                const xRatio = activePoint.x / chartWidth;
+                const isNearLeft = xRatio < 0.16;
+                const isNearRight = xRatio > 0.84;
+
+                let xTransform = '-translate-x-1/2';
+                let caretClass = 'left-1/2 -translate-x-1/2';
+
+                if (isNearLeft) {
+                  xTransform = 'translate-x-[-12px]';
+                  caretClass = 'left-6';
+                } else if (isNearRight) {
+                  xTransform = 'translate-x-[-88%]';
+                  caretClass = 'right-6';
+                }
+
+                const yTransform = isNearTop ? 'translate-y-3.5' : '-translate-y-full -translate-y-3.5';
+
+                return (
+                  <div
+                    className={`absolute pointer-events-none z-50 transition-all duration-150 transform ${xTransform} ${yTransform}`}
+                    style={{
+                      left: `${(activePoint.x / chartWidth) * 100}%`,
+                      top: `${(activePoint.y / chartHeight) * 100}%`,
+                    }}
+                  >
+                    <div className="relative bg-slate-900/95 text-white rounded-xl shadow-[0_12px_32px_-4px_rgba(0,0,0,0.55)] px-3.5 py-2.5 text-xs min-w-[165px] border border-slate-700/70 backdrop-blur-md">
+                      {/* Directional Caret pointing directly to data node */}
+                      {isNearTop ? (
+                        <div
+                          className={`absolute -top-1.5 ${caretClass} w-3 h-3 bg-slate-900 border-t border-l border-slate-700/70 rotate-45`}
+                        />
+                      ) : (
+                        <div
+                          className={`absolute -bottom-1.5 ${caretClass} w-3 h-3 bg-slate-900 border-b border-r border-slate-700/70 rotate-45`}
+                        />
                       )}
-                    </div>
-                    <div className="space-y-0.5">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[10px] text-slate-400">Total Sales:</span>
-                        <span className="font-mono font-bold text-emerald-400">
-                          {formatNaira(activePoint.amount)}
+
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-700/60 pb-1.5 mb-1.5">
+                        <span className="font-bold text-slate-100 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                          {activePoint.label}
                         </span>
+                        {activePoint.subLabel && (
+                          <span
+                            className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                              activePoint.isCurrent
+                                ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-400/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}
+                          >
+                            {activePoint.subLabel}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[10px] text-slate-400">Volume:</span>
-                        <span className="text-[11px] text-slate-200">
-                          {activePoint.unitsCount} unit{activePoint.unitsCount !== 1 ? 's' : ''} ({activePoint.txnCount} order{activePoint.txnCount !== 1 ? 's' : ''})
-                        </span>
-                      </div>
-                      {activePoint.topProduct && (
-                        <div className="pt-1 mt-1 border-t border-slate-800 text-[10px] text-indigo-300 truncate max-w-[170px]">
-                          ⚡ Top: {activePoint.topProduct}
+                      <div className="space-y-1">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-[10px] font-medium text-slate-400">Total Sales:</span>
+                          <span className="font-mono font-bold text-emerald-400 text-[13px]">
+                            {formatNaira(activePoint.amount)}
+                          </span>
                         </div>
-                      )}
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-[10px] font-medium text-slate-400">Volume:</span>
+                          <span className="text-[11px] text-slate-200">
+                            {activePoint.unitsCount} unit{activePoint.unitsCount !== 1 ? 's' : ''}{' '}
+                            <span className="text-slate-400">
+                              ({activePoint.txnCount} order{activePoint.txnCount !== 1 ? 's' : ''})
+                            </span>
+                          </span>
+                        </div>
+                        {activePoint.topProduct && (
+                          <div className="pt-1.5 mt-1 border-t border-slate-800 text-[10px] text-indigo-300 truncate max-w-[190px] flex items-center gap-1">
+                            <span className="text-amber-400">⚡</span>
+                            <span className="font-medium text-slate-400">Top:</span>
+                            <span className="truncate font-semibold">{activePoint.topProduct}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}
