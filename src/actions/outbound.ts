@@ -506,13 +506,11 @@ export interface OutboundDetailData {
   from_location: {
     id: string;
     name: string;
-    code: string | null;
     type: string | null;
   } | null;
   to_location: {
     id: string;
     name: string;
-    code: string | null;
     type: string | null;
   } | null;
   items: OutboundDetailItem[];
@@ -550,9 +548,9 @@ export async function getOutboundDetail(
         created_at,
         from_location_id,
         to_location_id,
-        from_loc:locations!from_location_id(id, name, code, type),
-        to_loc:locations!to_location_id(id, name, code, type),
-        profiles:created_by(id, full_name, email, role),
+        from_loc:locations!from_location_id(id, name, type),
+        to_loc:locations!to_location_id(id, name, type),
+        profiles(id, full_name, role),
         transaction_items(
           serial_number,
           sale_price,
@@ -608,7 +606,7 @@ export async function getOutboundDetail(
       sold_at: txn.sold_at,
       created_at: txn.created_at,
       created_by_name: txn.profiles?.full_name || null,
-      created_by_email: txn.profiles?.email || null,
+      created_by_email: null,
       created_by_role: txn.profiles?.role || null,
       from_location: txn.from_loc || null,
       to_location: txn.to_loc || null,
