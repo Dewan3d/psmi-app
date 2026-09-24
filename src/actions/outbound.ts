@@ -478,3 +478,146 @@ export async function markTransferDelivered(transactionId: string): Promise<{ er
 
   return { error: null };
 }
+
+export interface OutboundDetailItem {
+  serial_number: string;
+  sku: string;
+  model_name: string;
+  category_badge: string;
+  status: string;
+  sale_price?: number | null;
+}
+
+export interface OutboundDetailData {
+  id: string;
+  tracking_number: string | null;
+  type: string;
+  route: OutboundRoute | string;
+  verified: boolean;
+  notes: string | null;
+  customer_name: string | null;
+  customer_phone?: string | null;
+  sales_manager: string | null;
+  sold_at: string | null;
+  created_at: string;
+  created_by_name: string | null;
+  created_by_email: string | null;
+  created_by_role: string | null;
+  from_location: {
+    id: string;
+    name: string;
+    code: string | null;
+    type: string | null;
+  } | null;
+  to_location: {
+    id: string;
+    name: string;
+    code: string | null;
+    type: string | null;
+  } | null;
+  items: OutboundDetailItem[];
+  verification_documents: {
+    id: string;
+    document_type: string;
+    storage_url: string;
+    uploaded_at: string;
+  }[];
+}
+
+export async function getOutboundDetail(
+  transactionId: string
+): Promise<{ data: OutboundDetailData | null; error: string | null }> {
+  try {
+    let supabase: any;
+    try {
+      supabase = createAdminClient();
+    } catch {
+      supabase = await createClient();
+    }
+
+    const { data: txn, error: txnError } = await supabase
+      .from('transactions')
+      .select(`
+        id,
+        tracking_number,
+        type,
+        route,
+        verified,
+        notes,
+        customer_name,
+        sales_manager,
+        sold_at,
+        created_at,
+        from_location_id,
+        to_location_id,
+        from_loc:locations!from_location_id(id, name, code, type),
+        to_loc:locations!to_location_id(id, name, code, type),
+        profiles:created_by(id, full_name, email, role),
+        transaction_items(
+          serial_number,
+          sale_price,
+          inventory_units(
+            sku,
+            status,
+            products(sku, model_name, category_badge)
+          )
+        ),
+        verification_documents(
+          id,
+          document_type,
+          storage_url,
+          uploaded_at
+        )
+      `)
+      .eq('id', transactionId)
+      .single();
+
+    if (txnError || !txn) {
+      return { data: null, error: txnError?.message || 'Transaction not found' };
+    }
+
+    const items: OutboundDetailItem[] = (txn.transaction_items || []).map((ti: any) => {
+      const invUnit = ti.inventory_units;
+      const prod = invUnit?.products;
+      return {
+        serial_number: ti.serial_number,
+        sku: invUnit?.sku || prod?.sku || 'Unknown SKU',
+        model_name: prod?.model_name || 'Unknown Model',
+        category_badge: prod?.category_badge || 'OTHER',
+        status: invUnit?.status || 'UNKNOWN',
+        sale_price: ti.sale_price ?? null,
+      };
+    });
+
+    const verificationDocs = (txn.verification_documents || []).map((vd: any) => ({
+      id: vd.id,
+      document_type: vd.document_type,
+      storage_url: vd.storage_url,
+      uploaded_at: vd.uploaded_at,
+    }));
+
+    const detailData: OutboundDetailData = {
+      id: txn.id,
+      tracking_number: txn.tracking_number,
+      type: txn.type,
+      route: txn.route,
+      verified: Boolean(txn.verified),
+      notes: txn.notes,
+      customer_name: txn.customer_name,
+      sales_manager: txn.sales_manager,
+      sold_at: txn.sold_at,
+      created_at: txn.created_at,
+      created_by_name: txn.profiles?.full_name || null,
+      created_by_email: txn.profiles?.email || null,
+      created_by_role: txn.profiles?.role || null,
+      from_location: txn.from_loc || null,
+      to_location: txn.to_loc || null,
+      items,
+      verification_documents: verificationDocs,
+    };
+
+    return { data: detailData, error: null };
+  } catch (err: any) {
+    return { data: null, error: err.message || 'Failed to fetch outbound transaction detail' };
+  }
+}

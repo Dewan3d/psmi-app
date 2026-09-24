@@ -58,6 +58,7 @@ import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
+import { OutboundDetailModal } from './components/outbound-detail-modal';
 import { useUser } from '../components/user-context';
 
 type OutboundSummary = {
@@ -1892,6 +1893,7 @@ export default function OutboundPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'ALL' | 'NEEDS_WAYBILL' | 'TB' | 'SALES' | 'VERIFIED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedOutbound, setSelectedOutbound] = useState<OutboundSummary | null>(null);
 
   const needsWaybillCount = useMemo(() => {
     return transactions.filter((t) => !t.verified && (t.route === 'B2B' || t.route === 'B2C')).length;
@@ -2122,6 +2124,30 @@ export default function OutboundPage() {
         confirmText="Yes, Cancel Dispatch"
       />
 
+      {/* Outbound Detail Manifest Modal */}
+      <OutboundDetailModal
+        isOpen={!!selectedOutbound}
+        onClose={() => setSelectedOutbound(null)}
+        transactionId={selectedOutbound?.id || null}
+        summaryFallback={selectedOutbound}
+        isViewer={isViewer}
+        onMarkDelivered={(txnId) => {
+          const target = transactions.find((t) => t.id === txnId) || selectedOutbound;
+          if (target) {
+            setDeliveryTarget(target);
+          }
+        }}
+        onVerify={(txnId, tracking) => {
+          setVerifyTarget({ id: txnId, tracking });
+        }}
+        onCancelDispatch={(txnId) => {
+          const target = transactions.find((t) => t.id === txnId) || selectedOutbound;
+          if (target) {
+            setTxnToDelete(target);
+          }
+        }}
+      />
+
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
@@ -2309,7 +2335,12 @@ export default function OutboundPage() {
                   const route = routeConfig[txn.route] || { label: txn.route, color: 'bg-slate-100 text-slate-700', icon: null };
                   const needsVerify = !txn.verified && (txn.route === 'B2B' || txn.route === 'B2C');
                   return (
-                    <tr key={txn.id} className="hover:bg-slate-50/70 transition-colors group">
+                    <tr
+                      key={txn.id}
+                      onClick={() => setSelectedOutbound(txn)}
+                      className="hover:bg-slate-50/90 transition-colors group cursor-pointer"
+                      title="Click to view outbound dispatch details"
+                    >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><ArrowUpRight className="w-4 h-4" /></div>
@@ -2358,7 +2389,10 @@ export default function OutboundPage() {
                             </span>
                           ) : (
                             <button
-                              onClick={() => setDeliveryTarget(txn)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeliveryTarget(txn);
+                              }}
                               className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200/80 rounded-full px-2.5 py-1 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition-all cursor-pointer group/tb shadow-2xs"
                               title="Click to mark this branch transfer as Stock Delivered"
                             >
@@ -2376,7 +2410,10 @@ export default function OutboundPage() {
                             </span>
                           ) : (
                             <button
-                              onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setVerifyTarget({ id: txn.id, tracking: txn.tracking_number });
+                              }}
                               className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/50 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors cursor-pointer"
                             >
                               <AlertCircle className="w-3.5 h-3.5" />Verify Now
@@ -2399,10 +2436,13 @@ export default function OutboundPage() {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-end gap-2.5">
+                        <div className="flex items-center justify-end gap-2.5" onClick={(e) => e.stopPropagation()}>
                           {txn.route === 'TB' && !txn.verified && !isViewer && (
                             <button
-                              onClick={() => setDeliveryTarget(txn)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeliveryTarget(txn);
+                              }}
                               className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg px-2.5 py-1 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
                               title="Mark stock as delivered to destination branch"
                             >
@@ -2412,7 +2452,10 @@ export default function OutboundPage() {
                           )}
                           {needsVerify && !isViewer && (
                             <button
-                              onClick={() => setVerifyTarget({ id: txn.id, tracking: txn.tracking_number })}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setVerifyTarget({ id: txn.id, tracking: txn.tracking_number });
+                              }}
                               className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
                             >
                               Verify <ChevronRight className="w-3.5 h-3.5" />
@@ -2420,7 +2463,10 @@ export default function OutboundPage() {
                           )}
                           {!txn.verified && !isViewer && (
                             <button
-                              onClick={() => setTxnToDelete(txn)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTxnToDelete(txn);
+                              }}
                               disabled={isDeleteLoading}
                               className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-600 hover:text-red-800 hover:bg-red-100/70 border border-red-100 rounded-lg transition-colors cursor-pointer"
                               title="Cancel/Delete outbound dispatch"
