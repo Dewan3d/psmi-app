@@ -186,7 +186,7 @@ export default function StockInfographicContainer({
       </div>
 
       {/* ── Main Dynamic Visualization: Bubble Map OR Bar Chart ─ */}
-      <div className="transition-all duration-300">
+      <div key={activeView} className="chart-crossfade-enter will-change-transform">
         {activeView === 'BUBBLE_MAP' ? (
           <MainWarehouseBubbleChart
             models={mainWarehouseModels}

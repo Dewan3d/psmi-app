@@ -7,7 +7,8 @@
 // animated Sign Out confirmation / action.
 // ============================================================
 
-import React, { useState, useEffect, useRef, useTransition } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -17,17 +18,24 @@ import {
   User,
   Shield,
   Loader2,
-  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { signOut } from '@/actions/auth';
 import { useUser } from './user-context';
+import ConfirmModal from './confirm-modal';
 
 export function UserProfileDropdown() {
   const router = useRouter();
   const { profile, role, isAdmin, isViewer } = useUser();
   const [isOpen, setIsOpen] = useState(false);
+  const [showConfirmSignOut, setShowConfirmSignOut] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const profileName = profile?.full_name || 'PSMI User';
   const roleDisplay = isViewer
@@ -57,9 +65,9 @@ export function UserProfileDropdown() {
     };
   }, [isOpen]);
 
-  const handleSignOut = async () => {
+  const handleConfirmSignOut = async () => {
+    setShowConfirmSignOut(false);
     setIsSigningOut(true);
-    setIsOpen(false);
     try {
       await signOut();
     } catch {
@@ -69,15 +77,38 @@ export function UserProfileDropdown() {
 
   return (
     <>
-      {/* Full-screen exit transition overlay when signing out */}
-      {isSigningOut && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in text-white p-6">
-          <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center">
-            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-3" />
-            <p className="text-base font-bold text-white">Signing out...</p>
+      {/* Confirmation Warning Modal */}
+      <ConfirmModal
+        isOpen={showConfirmSignOut}
+        onClose={() => setShowConfirmSignOut(false)}
+        onConfirm={handleConfirmSignOut}
+        title="Sign Out of PSMI"
+        isDestructive={true}
+        confirmText="Yes, Sign Out"
+        cancelText="Stay Signed In"
+        icon={<LogOut className="w-6 h-6 text-rose-600" />}
+        message={
+          <div className="space-y-1.5 text-xs text-slate-600">
+            <p className="text-sm font-medium text-slate-800">
+              Are you sure you want to sign out?
+            </p>
+            <p>
+              Your active session will be securely terminated. You will need to enter your credentials to access the PSMI workspace again.
+            </p>
+          </div>
+        }
+      />
+
+      {/* Full-screen exit transition overlay when signing out (teleported to body) */}
+      {mounted && isSigningOut && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in text-white p-6">
+          <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center animate-scale-in">
+            <Loader2 className="w-9 h-9 text-indigo-500 animate-spin mb-3.5" />
+            <p className="text-base font-bold text-white tracking-tight">Signing out...</p>
             <p className="text-xs text-slate-400 mt-1">Clearing active session securely.</p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <div className="relative" ref={dropdownRef}>
@@ -133,7 +164,10 @@ export function UserProfileDropdown() {
 
             <div className="border-t border-slate-100 pt-1">
               <button
-                onClick={handleSignOut}
+                onClick={() => {
+                  setIsOpen(false);
+                  setShowConfirmSignOut(true);
+                }}
                 disabled={isSigningOut}
                 className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer text-left"
               >
