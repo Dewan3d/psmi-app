@@ -974,7 +974,7 @@ function SaleRow({
         </td>
         <td className="px-4 py-3.5 text-center">
           <ChevronDown
-            className={`w-4 h-4 text-slate-400 inline transition-transform duration-250 ease-out ${
+            className={`w-4 h-4 text-slate-400 inline transition-transform duration-500 ease-in-out ${
               expanded ? 'rotate-180 text-indigo-600' : 'rotate-0'
             }`}
           />
