@@ -185,13 +185,6 @@ export default function StockInfographicContainer({
         </div>
       </div>
 
-      {/* ── Status Bar Overview ───────────────────────────────── */}
-      <StockStatusBar
-        statusBreakdown={statusBreakdown}
-        totalUnits={totalUnits}
-        categoryLabel={activeCategoryLabel}
-      />
-
       {/* ── Main Dynamic Visualization: Bubble Map OR Bar Chart ─ */}
       <div className="transition-all duration-300">
         {activeView === 'BUBBLE_MAP' ? (
@@ -206,6 +199,13 @@ export default function StockInfographicContainer({
           />
         )}
       </div>
+
+      {/* ── Status Bar Overview (Stock Distribution) ─────────── */}
+      <StockStatusBar
+        statusBreakdown={statusBreakdown}
+        totalUnits={totalUnits}
+        categoryLabel={activeCategoryLabel}
+      />
     </div>
   );
 }

@@ -90,10 +90,10 @@ export default function MainWarehouseBubbleChart({
     );
   }, [models, activeCategory]);
 
-  // Wide, expansive canvas dimensions
-  const width = 1100;
-  const height = 540;
-  const centerX = width / 2;
+  // Wide, expansive canvas dimensions to fully fill the container box
+  const width = 1140;
+  const height = 660;
+  const centerX = width / 2 - 30;
   const centerY = height / 2;
 
   // Circle packing calculation utilizing expansive negative space
@@ -102,13 +102,11 @@ export default function MainWarehouseBubbleChart({
 
     const maxStock = Math.max(...filteredModels.map((m) => m.total_available), 1);
 
-    // Scaling: radius proportional to sqrt(count) with expansive max & min
-    const maxRadius = Math.min(84, Math.max(50, Math.sqrt(maxStock) * 0.65));
-    const minRadius = 14;
-
+    // Enlarge bubbles significantly with power scaling (0.44 exponent)
+    // Largest bubble up to ~120px, small bubbles comfortably 26px so all text fits
     const circles: PackedCircle[] = filteredModels.map((m) => {
-      const ratio = Math.sqrt(m.total_available / maxStock);
-      const r = Math.max(minRadius, ratio * maxRadius);
+      const ratio = Math.pow(m.total_available / maxStock, 0.44);
+      const r = Math.max(26, ratio * 120);
       return {
         ...m,
         in_warehouse_count: m.in_warehouse_count || 0,
@@ -122,23 +120,23 @@ export default function MainWarehouseBubbleChart({
     // Sort descending so larger circles anchor comfortably
     circles.sort((a, b) => b.r - a.r);
 
-    // Initial expansive elliptical spiral placement (wider aspect ratio to fill canvas)
+    // Initial expansive elliptical spiral placement across the full rectangular box
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     circles.forEach((c, i) => {
       if (i === 0) {
-        c.x = centerX - 40;
+        c.x = centerX;
         c.y = centerY;
       } else {
-        const radiusDist = 38 * Math.sqrt(i) + c.r;
+        const radiusDist = 58 * Math.sqrt(i) + c.r;
         const angle = i * goldenAngle;
-        // Elliptical distribution: 1.4x horizontal spread
-        c.x = centerX - 40 + Math.cos(angle) * (radiusDist * 1.35);
-        c.y = centerY + Math.sin(angle) * (radiusDist * 0.95);
+        // Elliptical distribution: 1.55x horizontal spread
+        c.x = centerX + Math.cos(angle) * (radiusDist * 1.55);
+        c.y = centerY + Math.sin(angle) * (radiusDist * 0.98);
       }
     });
 
-    // Iterative separation & relaxation physics
-    const iterations = 100;
+    // Iterative separation & relaxation physics with 14px clear space between bubbles
+    const iterations = 150;
     for (let iter = 0; iter < iterations; iter++) {
       for (let i = 0; i < circles.length; i++) {
         const c1 = circles[i];
@@ -147,7 +145,7 @@ export default function MainWarehouseBubbleChart({
           const dx = c2.x - c1.x;
           const dy = c2.y - c1.y;
           const dist = Math.hypot(dx, dy) || 0.001;
-          const minDist = c1.r + c2.r + 5; // 5px padding for airy separation
+          const minDist = c1.r + c2.r + 14; // Generous 14px space between each bubble
 
           if (dist < minDist) {
             const overlap = (minDist - dist) / dist;
@@ -164,14 +162,12 @@ export default function MainWarehouseBubbleChart({
           }
         }
 
-        // Center gravity with wider spread
-        const toCenterX = centerX - 40 - c1.x;
-        const toCenterY = centerY - c1.y;
-        c1.x += toCenterX * 0.012;
-        c1.y += toCenterY * 0.016;
+        // Very light center gravity so bubbles expand widely to fill the square/box
+        c1.x += (centerX - c1.x) * 0.005;
+        c1.y += (centerY - c1.y) * 0.008;
 
         // Viewport bounding clamp
-        const padding = 10;
+        const padding = 15;
         c1.x = Math.max(c1.r + padding, Math.min(width - c1.r - padding, c1.x));
         c1.y = Math.max(c1.r + padding, Math.min(height - c1.r - padding, c1.y));
       }
@@ -250,10 +246,10 @@ export default function MainWarehouseBubbleChart({
         </div>
       ) : (
         /* ── SVG Chart View with Expansive Canvas ─────────────── */
-        <div className="relative w-full h-[460px] sm:h-[500px] md:h-[540px] flex items-center justify-center select-none overflow-hidden">
+        <div className="relative w-full h-[520px] sm:h-[600px] md:h-[660px] flex items-center justify-center select-none overflow-hidden">
           <svg
             viewBox={`0 0 ${width} ${height}`}
-            className="w-full h-full max-h-[540px] overflow-visible"
+            className="w-full h-full max-h-[660px] overflow-visible"
           >
             <defs>
               {/* Gradients for visual depth */}
@@ -287,9 +283,9 @@ export default function MainWarehouseBubbleChart({
 
             {/* Background subtle grid pattern for expansive scale anchoring */}
             <g opacity="0.04" stroke="#64748b" strokeWidth="1">
-              <ellipse cx={centerX - 40} cy={centerY} rx={160} ry={110} fill="none" />
-              <ellipse cx={centerX - 40} cy={centerY} rx={320} ry={220} fill="none" />
-              <ellipse cx={centerX - 40} cy={centerY} rx={480} ry={310} fill="none" />
+              <ellipse cx={centerX} cy={centerY} rx={200} ry={130} fill="none" />
+              <ellipse cx={centerX} cy={centerY} rx={380} ry={250} fill="none" />
+              <ellipse cx={centerX} cy={centerY} rx={540} ry={340} fill="none" />
             </g>
 
             {/* Bubble Elements */}
