@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 
-export async function signIn(formData: FormData) {
+export async function signIn(formData: FormData): Promise<{ success?: boolean; error?: string }> {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
 
@@ -19,7 +19,7 @@ export async function signIn(formData: FormData) {
     return { error: 'Invalid email or password. Please try again.' };
   }
 
-  redirect('/');
+  return { success: true };
 }
 
 export async function signOut() {

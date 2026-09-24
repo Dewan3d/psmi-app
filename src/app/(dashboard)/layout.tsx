@@ -31,6 +31,8 @@ import {
 import { signOut } from '@/actions/auth';
 import GlobalSearchBar from './components/global-search-bar';
 import { UserProvider, useUser } from './components/user-context';
+import { NotificationBellPopover } from './components/notification-popover';
+import { UserProfileDropdown } from './components/user-profile-dropdown';
 
 // ── Navigation Items ──────────────────────────────────────────
 const navItems = [
@@ -206,23 +208,12 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Right: Notifications + Avatar */}
-          <div className="flex items-center gap-2">
-            <button className="relative p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
-            </button>
+          {/* Right: Notifications + User Dropdown */}
+          <div className="flex items-center gap-3">
+            <NotificationBellPopover />
 
-            <div className="hidden sm:flex items-center gap-2 pl-2 ml-1 border-l border-slate-200">
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-semibold">
-                {profileName ? profileName.charAt(0).toUpperCase() : 'U'}
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-medium text-slate-700">
-                  {profileName || '...'}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </div>
+            <div className="hidden sm:block pl-2 border-l border-slate-200">
+              <UserProfileDropdown />
             </div>
           </div>
         </header>
