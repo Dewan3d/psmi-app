@@ -3,17 +3,17 @@
 // ============================================================
 // PSMI System — Main Warehouse Stock Bubble Map Chart
 // ============================================================
-// Renders an interactive circle-packed bubble map of all models
-// in the Main Warehouse. Bubble sizes are strictly proportional
-// to stock quantities (r ~ sqrt(count)). Hovering shows the
-// model details and all constituent SKUs with counts.
+// Expansive, organic bubble map of all inbounded & pending
+// serial models in the inventory. Utilizes negative space well
+// across a wide viewport, with fixed top-right detail card to
+// never obscure bubbles while hovering.
 // Pure SVG + Tailwind — zero external charting dependencies.
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
 import { ProductCategory } from '@/lib/types/database';
 import { MainWarehouseModelStock } from '@/actions/dashboard';
-import { Package, Layers, Sparkles, Info } from 'lucide-react';
+import { Package, Layers, Info, CheckCircle2, Clock } from 'lucide-react';
 
 interface MainWarehouseBubbleChartProps {
   models: MainWarehouseModelStock[];
@@ -66,7 +66,9 @@ interface PackedCircle {
   model_name: string;
   category: ProductCategory;
   total_available: number;
-  skus: { sku: string; count: number }[];
+  in_warehouse_count: number;
+  pending_serial_count: number;
+  skus: { sku: string; count: number; in_warehouse?: number; pending_serial?: number }[];
   x: number;
   y: number;
   r: number;
@@ -77,7 +79,6 @@ export default function MainWarehouseBubbleChart({
   activeCategory,
 }: MainWarehouseBubbleChartProps) {
   const [hoveredModel, setHoveredModel] = useState<PackedCircle | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Filter models by category if active
   const filteredModels = useMemo(() => {
@@ -89,57 +90,56 @@ export default function MainWarehouseBubbleChart({
     );
   }, [models, activeCategory]);
 
-  // Dimensions
-  const width = 800;
-  const height = 480;
+  // Wide, expansive canvas dimensions
+  const width = 1100;
+  const height = 540;
   const centerX = width / 2;
   const centerY = height / 2;
 
-  // Pure circle packing calculation
+  // Circle packing calculation utilizing expansive negative space
   const packedCircles: PackedCircle[] = useMemo(() => {
     if (filteredModels.length === 0) return [];
 
-    const totalStock = filteredModels.reduce((acc, m) => acc + m.total_available, 0);
     const maxStock = Math.max(...filteredModels.map((m) => m.total_available), 1);
 
-    // Scale radii proportionally to sqrt(count)
-    // Dynamic max and min radius to fit comfortably inside the SVG viewport
-    const maxRadius = Math.min(100, Math.max(48, Math.sqrt(maxStock / totalStock) * 300));
+    // Scaling: radius proportional to sqrt(count) with expansive max & min
+    const maxRadius = Math.min(84, Math.max(50, Math.sqrt(maxStock) * 0.65));
     const minRadius = 14;
 
-    const circles = filteredModels.map((m) => {
-      // Area proportional to total_available: r proportional to sqrt(count)
+    const circles: PackedCircle[] = filteredModels.map((m) => {
       const ratio = Math.sqrt(m.total_available / maxStock);
       const r = Math.max(minRadius, ratio * maxRadius);
       return {
         ...m,
-        x: centerX + (Math.random() - 0.5) * 50,
-        y: centerY + (Math.random() - 0.5) * 50,
+        in_warehouse_count: m.in_warehouse_count || 0,
+        pending_serial_count: m.pending_serial_count || 0,
+        x: centerX + (Math.random() - 0.5) * 200,
+        y: centerY + (Math.random() - 0.5) * 150,
         r,
       };
     });
 
-    // Sort descending so larger circles claim prime central real estate
+    // Sort descending so larger circles anchor comfortably
     circles.sort((a, b) => b.r - a.r);
 
-    // Initial placement along Archimedean / Fermat spiral
+    // Initial expansive elliptical spiral placement (wider aspect ratio to fill canvas)
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     circles.forEach((c, i) => {
       if (i === 0) {
-        c.x = centerX;
+        c.x = centerX - 40;
         c.y = centerY;
       } else {
-        const radiusDist = 28 * Math.sqrt(i) + c.r;
+        const radiusDist = 38 * Math.sqrt(i) + c.r;
         const angle = i * goldenAngle;
-        c.x = centerX + Math.cos(angle) * radiusDist;
-        c.y = centerY + Math.sin(angle) * radiusDist;
+        // Elliptical distribution: 1.4x horizontal spread
+        c.x = centerX - 40 + Math.cos(angle) * (radiusDist * 1.35);
+        c.y = centerY + Math.sin(angle) * (radiusDist * 0.95);
       }
     });
 
     // Iterative separation & relaxation physics
-    const iterations = 85;
+    const iterations = 100;
     for (let iter = 0; iter < iterations; iter++) {
-      // Collision resolution
       for (let i = 0; i < circles.length; i++) {
         const c1 = circles[i];
         for (let j = i + 1; j < circles.length; j++) {
@@ -147,14 +147,13 @@ export default function MainWarehouseBubbleChart({
           const dx = c2.x - c1.x;
           const dy = c2.y - c1.y;
           const dist = Math.hypot(dx, dy) || 0.001;
-          const minDist = c1.r + c2.r + 3; // 3px padding between bubbles
+          const minDist = c1.r + c2.r + 5; // 5px padding for airy separation
 
           if (dist < minDist) {
             const overlap = (minDist - dist) / dist;
             const pushX = dx * overlap * 0.5;
             const pushY = dy * overlap * 0.5;
 
-            // Larger bubbles resist displacement more strongly
             const w1 = c2.r / (c1.r + c2.r);
             const w2 = c1.r / (c1.r + c2.r);
 
@@ -165,14 +164,14 @@ export default function MainWarehouseBubbleChart({
           }
         }
 
-        // Mild pull toward center gravity to keep tight organic cluster
-        const toCenterX = centerX - c1.x;
+        // Center gravity with wider spread
+        const toCenterX = centerX - 40 - c1.x;
         const toCenterY = centerY - c1.y;
-        c1.x += toCenterX * 0.025;
-        c1.y += toCenterY * 0.025;
+        c1.x += toCenterX * 0.012;
+        c1.y += toCenterY * 0.016;
 
         // Viewport bounding clamp
-        const padding = 6;
+        const padding = 10;
         c1.x = Math.max(c1.r + padding, Math.min(width - c1.r - padding, c1.x));
         c1.y = Math.max(c1.r + padding, Math.min(height - c1.r - padding, c1.y));
       }
@@ -195,17 +194,11 @@ export default function MainWarehouseBubbleChart({
             <Package className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-slate-800 tracking-tight">
-                Main Warehouse Stock Map
-              </h3>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                <Sparkles className="w-3 h-3 text-indigo-500" />
-                {filteredModels.length} Models
-              </span>
-            </div>
+            <h3 className="text-base font-semibold text-slate-800 tracking-tight">
+              Main Warehouse Stock Map
+            </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Available inventory in Main Warehouse. Bubble sizes reflect physical unit volume.
+              Available &amp; pending serial inventory. Bubble sizes reflect physical unit volume.
             </p>
           </div>
         </div>
@@ -214,7 +207,7 @@ export default function MainWarehouseBubbleChart({
         <div className="flex items-center gap-4 text-right">
           <div>
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-              Available Units
+              Total Inbounded Units
             </p>
             <p className="text-xl font-bold text-slate-900 tracking-tight">
               {totalWarehouseUnits.toLocaleString()}
@@ -249,27 +242,18 @@ export default function MainWarehouseBubbleChart({
             <Info className="w-8 h-8 text-slate-300" />
           </div>
           <p className="text-sm font-medium text-slate-600">
-            No stock available in Main Warehouse
+            No stock available for this category
           </p>
           <p className="text-xs text-slate-400 mt-1">
-            Units uploaded or transferred to Main Warehouse will appear here automatically.
+            Inbounded items or pending serial uploads will appear here automatically.
           </p>
         </div>
       ) : (
-        /* ── SVG Chart View ──────────────────────────────────── */
-        <div
-          className="relative w-full h-[380px] sm:h-[440px] md:h-[480px] flex items-center justify-center select-none"
-          onMouseMove={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            setMousePos({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            });
-          }}
-        >
+        /* ── SVG Chart View with Expansive Canvas ─────────────── */
+        <div className="relative w-full h-[460px] sm:h-[500px] md:h-[540px] flex items-center justify-center select-none overflow-hidden">
           <svg
             viewBox={`0 0 ${width} ${height}`}
-            className="w-full h-full max-h-[480px] overflow-visible"
+            className="w-full h-full max-h-[540px] overflow-visible"
           >
             <defs>
               {/* Gradients for visual depth */}
@@ -301,11 +285,11 @@ export default function MainWarehouseBubbleChart({
               </filter>
             </defs>
 
-            {/* Background subtle grid pattern for scale anchoring */}
+            {/* Background subtle grid pattern for expansive scale anchoring */}
             <g opacity="0.04" stroke="#64748b" strokeWidth="1">
-              <circle cx={centerX} cy={centerY} r={80} fill="none" />
-              <circle cx={centerX} cy={centerY} r={160} fill="none" />
-              <circle cx={centerX} cy={centerY} r={240} fill="none" />
+              <ellipse cx={centerX - 40} cy={centerY} rx={160} ry={110} fill="none" />
+              <ellipse cx={centerX - 40} cy={centerY} rx={320} ry={220} fill="none" />
+              <ellipse cx={centerX - 40} cy={centerY} rx={480} ry={310} fill="none" />
             </g>
 
             {/* Bubble Elements */}
@@ -316,8 +300,8 @@ export default function MainWarehouseBubbleChart({
               const hasMultiSku = circle.skus.length > 1;
 
               // Text sizing logic
-              const canShowLabel = circle.r >= 22;
-              const canShowCount = circle.r >= 30;
+              const canShowLabel = circle.r >= 20;
+              const canShowCount = circle.r >= 28;
               const fontSize = Math.max(10, Math.min(13, circle.r / 3.4));
 
               return (
@@ -357,12 +341,12 @@ export default function MainWarehouseBubbleChart({
                     filter="url(#bubble-shadow)"
                     className="transition-all duration-300"
                     style={{
-                      animation: `bubble-entrance 0.5s ease-out ${Math.min(idx * 0.02, 0.4)}s both`,
+                      animation: `bubble-entrance 0.5s ease-out ${Math.min(idx * 0.015, 0.4)}s both`,
                     }}
                   />
 
                   {/* Multi-SKU indicator dot on the bubble perimeter */}
-                  {hasMultiSku && circle.r >= 25 && (
+                  {hasMultiSku && circle.r >= 24 && (
                     <circle
                       cx={circle.x + circle.r * 0.65}
                       cy={circle.y - circle.r * 0.65}
@@ -384,7 +368,7 @@ export default function MainWarehouseBubbleChart({
                       fontWeight="700"
                       className="pointer-events-none drop-shadow-sm select-none"
                     >
-                      {circle.model_name.length > 10 && circle.r < 40
+                      {circle.model_name.length > 10 && circle.r < 38
                         ? `${circle.model_name.slice(0, 8)}…`
                         : circle.model_name}
                     </text>
@@ -409,15 +393,9 @@ export default function MainWarehouseBubbleChart({
             })}
           </svg>
 
-          {/* ── Rich Tooltip ──────────────────────────────────── */}
-          {hoveredModel && (
-            <div
-              className="absolute z-20 pointer-events-none bg-slate-900/95 backdrop-blur-md text-white text-xs rounded-xl p-3.5 shadow-2xl border border-slate-700/60 max-w-xs transition-transform duration-75 ease-out"
-              style={{
-                left: `${Math.min(Math.max(mousePos.x + 16, 10), width - 240)}px`,
-                top: `${Math.min(Math.max(mousePos.y - 40, 10), height - 160)}px`,
-              }}
-            >
+          {/* ── Fixed Top-Right Info Card (Never blocks hovered bubbles) ── */}
+          {hoveredModel ? (
+            <div className="absolute top-3 right-3 z-20 pointer-events-none bg-slate-900/95 backdrop-blur-md text-white text-xs rounded-xl p-3.5 shadow-2xl border border-slate-700/70 w-72 animate-fade-in transition-all duration-200">
               {/* Tooltip Header */}
               <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-700/80">
                 <div>
@@ -435,11 +413,23 @@ export default function MainWarehouseBubbleChart({
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] text-slate-400 uppercase font-medium">
-                    Available
+                    Total Units
                   </span>
                   <p className="text-base font-extrabold text-emerald-400">
                     {hoveredModel.total_available.toLocaleString()}
                   </p>
+                </div>
+              </div>
+
+              {/* Status Breakdown: In Warehouse vs Pending Serial */}
+              <div className="grid grid-cols-2 gap-2 mb-2.5 pb-2 border-b border-slate-800 text-[11px]">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                  <span>In Wh: <strong className="text-white">{hoveredModel.in_warehouse_count.toLocaleString()}</strong></span>
+                </div>
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                  <span>Pending: <strong className="text-white">{hoveredModel.pending_serial_count.toLocaleString()}</strong></span>
                 </div>
               </div>
 
@@ -456,9 +446,9 @@ export default function MainWarehouseBubbleChart({
                   {hoveredModel.skus.map((s) => (
                     <div
                       key={s.sku}
-                      className="flex items-center justify-between py-0.5 px-1.5 rounded bg-slate-800/80 text-[11px]"
+                      className="flex items-center justify-between py-1 px-1.5 rounded bg-slate-800/80 text-[11px]"
                     >
-                      <span className="font-mono text-slate-300 truncate max-w-[150px]">
+                      <span className="font-mono text-slate-300 truncate max-w-[170px]">
                         {s.sku}
                       </span>
                       <span className="font-semibold text-slate-100 ml-2">
@@ -468,6 +458,11 @@ export default function MainWarehouseBubbleChart({
                   ))}
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="hidden sm:flex absolute top-3 right-3 z-10 pointer-events-none items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100/80 text-slate-400 text-xs border border-slate-200/60">
+              <Info className="w-3.5 h-3.5 text-slate-400" />
+              <span>Hover on any bubble to inspect model &amp; SKU breakdown</span>
             </div>
           )}
         </div>

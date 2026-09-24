@@ -411,7 +411,9 @@ export interface MainWarehouseModelStock {
   model_name: string;
   category: ProductCategory;
   total_available: number;
-  skus: { sku: string; count: number }[];
+  in_warehouse_count: number;
+  pending_serial_count: number;
+  skus: { sku: string; count: number; in_warehouse: number; pending_serial: number }[];
 }
 
 export async function getMainWarehouseStockByModel(): Promise<{
@@ -429,11 +431,11 @@ export async function getMainWarehouseStockByModel(): Promise<{
     return { data: [], error: prodError.message };
   }
 
-  // 2. Fetch inventory units in Main Warehouse with IN_WAREHOUSE status
+  // 2. Fetch inventory units that are inbounded (IN_WAREHOUSE or PENDING_SERIAL)
   const { data: summaryRows, error: summaryError } = await supabase
     .from('inventory_stock_summary')
     .select('sku, status, count')
-    .eq('status', 'IN_WAREHOUSE');
+    .in('status', ['IN_WAREHOUSE', 'PENDING_SERIAL']);
 
   if (summaryError) {
     return { data: [], error: summaryError.message };
@@ -463,13 +465,36 @@ export async function getMainWarehouseStockByModel(): Promise<{
         model_name: modelName,
         category: product.category_badge,
         total_available: 0,
+        in_warehouse_count: 0,
+        pending_serial_count: 0,
         skus: [],
       };
       modelMap.set(modelName, entry);
     }
 
     entry.total_available += count;
-    entry.skus.push({ sku: row.sku, count });
+    if (row.status === 'IN_WAREHOUSE') {
+      entry.in_warehouse_count += count;
+    } else if (row.status === 'PENDING_SERIAL') {
+      entry.pending_serial_count += count;
+    }
+
+    let skuEntry = entry.skus.find((s) => s.sku === row.sku);
+    if (!skuEntry) {
+      skuEntry = {
+        sku: row.sku,
+        count: 0,
+        in_warehouse: 0,
+        pending_serial: 0,
+      };
+      entry.skus.push(skuEntry);
+    }
+    skuEntry.count += count;
+    if (row.status === 'IN_WAREHOUSE') {
+      skuEntry.in_warehouse += count;
+    } else if (row.status === 'PENDING_SERIAL') {
+      skuEntry.pending_serial = (skuEntry.pending_serial || 0) + count;
+    }
   }
 
   const result = Array.from(modelMap.values()).sort(
