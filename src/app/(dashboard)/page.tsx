@@ -11,6 +11,7 @@ import {
   getRecentActivity,
   getLowStockAlerts,
   getStockByCategory,
+  getMainWarehouseStockByModel,
 } from '@/actions/dashboard';
 import StockInfographicContainer from './components/stock-infographic-container';
 import Link from 'next/link';
@@ -94,12 +95,20 @@ function Sparkline({
 // ── Main Dashboard ────────────────────────────────────────────
 export default async function DashboardPage() {
   // Fetch all data in parallel
-  const [locationData, salesData, activityData, alertData, stockCategoryData] = await Promise.all([
+  const [
+    locationData,
+    salesData,
+    activityData,
+    alertData,
+    stockCategoryData,
+    mainWarehouseData,
+  ] = await Promise.all([
     getInventoryByLocation(),
     getSalesSummary(),
     getRecentActivity(10),
     getLowStockAlerts(),
     getStockByCategory(),
+    getMainWarehouseStockByModel(),
   ]);
 
   // Compute KPI totals from location data
@@ -226,6 +235,7 @@ export default async function DashboardPage() {
         totals={stockCategoryData.data.totals}
         byCategory={stockCategoryData.data.by_category}
         byModel={stockCategoryData.data.by_model}
+        mainWarehouseModels={mainWarehouseData.data}
       />
 
       {/* ── Main Grid: Transactions + Recent Activity ────────── */}

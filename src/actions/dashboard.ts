@@ -405,3 +405,77 @@ export async function getStockByCategory(): Promise<{
     error: null,
   };
 }
+
+// ── Main Warehouse Models Stock (for Bubble Map Chart) ────────
+export interface MainWarehouseModelStock {
+  model_name: string;
+  category: ProductCategory;
+  total_available: number;
+  skus: { sku: string; count: number }[];
+}
+
+export async function getMainWarehouseStockByModel(): Promise<{
+  data: MainWarehouseModelStock[];
+  error: string | null;
+}> {
+  const supabase = (await createClient()) as any;
+
+  // 1. Fetch products mapping
+  const { data: products, error: prodError } = await supabase
+    .from('products')
+    .select('sku, model_name, category_badge');
+
+  if (prodError) {
+    return { data: [], error: prodError.message };
+  }
+
+  // 2. Fetch inventory units in Main Warehouse with IN_WAREHOUSE status
+  const { data: summaryRows, error: summaryError } = await supabase
+    .from('inventory_stock_summary')
+    .select('sku, status, count')
+    .eq('status', 'IN_WAREHOUSE');
+
+  if (summaryError) {
+    return { data: [], error: summaryError.message };
+  }
+
+  const productMap = new Map<string, { model_name: string; category_badge: ProductCategory }>();
+  for (const p of products || []) {
+    productMap.set(p.sku, {
+      model_name: p.model_name,
+      category_badge: p.category_badge || 'POWER_STATION',
+    });
+  }
+
+  const modelMap = new Map<string, MainWarehouseModelStock>();
+
+  for (const row of summaryRows || []) {
+    const product = productMap.get(row.sku);
+    if (!product) continue;
+
+    const count = row.count || 0;
+    if (count <= 0) continue;
+
+    const modelName = product.model_name;
+    let entry = modelMap.get(modelName);
+    if (!entry) {
+      entry = {
+        model_name: modelName,
+        category: product.category_badge,
+        total_available: 0,
+        skus: [],
+      };
+      modelMap.set(modelName, entry);
+    }
+
+    entry.total_available += count;
+    entry.skus.push({ sku: row.sku, count });
+  }
+
+  const result = Array.from(modelMap.values()).sort(
+    (a, b) => b.total_available - a.total_available
+  );
+
+  return { data: result, error: null };
+}
+
