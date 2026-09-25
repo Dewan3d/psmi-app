@@ -828,7 +828,7 @@ export async function listInboundTransactions(limit?: number): Promise<{
   return { data: transactions, error: null };
 }
 
-// ── Delete inbound receipt (Pending or un-dispatched units) ──────────
+// ── Delete inbound receipt (Pending placeholders only) ────────────────
 export async function deleteInboundTransaction(transactionId: string): Promise<{ error: string | null; deletedCount?: number }> {
   const authClient = await createClient();
   const { data: { user } } = await authClient.auth.getUser();
@@ -876,8 +876,43 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
 
   const serials = (items || []).map((i: any) => i.serial_number);
 
-  // 3. Safety check: make sure no units from this inbound have already been sold, reserved, or dispatched
+  // 3. Strict Safety Check 1: Deny deletion if ANY real serial numbers have been uploaded/assigned
+  // Only placeholder batches with PENDING- can ever be deleted/cancelled.
+  const uploadedSerials = serials.filter((s: string) => !s.startsWith('PENDING-'));
+  if (uploadedSerials.length > 0) {
+    return {
+      error: `Cannot delete inbound receipt: ${uploadedSerials.length} unit(s) have already had their serial numbers uploaded and registered to inventory. Active inbounded stock cannot be deleted.`,
+    };
+  }
+
   if (serials.length > 0) {
+    // 4. Strict Safety Check 2: Deny if any unit is linked to an Outbound dispatch or Customer Sale
+    const { data: otherTxnItems } = await supabase
+      .from('transaction_items')
+      .select(`
+        serial_number,
+        transaction_id,
+        transactions (
+          id,
+          type,
+          route,
+          tracking_number,
+          customer_name
+        )
+      `)
+      .in('serial_number', serials)
+      .neq('transaction_id', targetId);
+
+    if (otherTxnItems && otherTxnItems.length > 0) {
+      const trackingNums = [...new Set(otherTxnItems.map((ot: any) => ot.transactions?.tracking_number).filter(Boolean))];
+      const trackingInfo = trackingNums.length > 0 ? ` (${trackingNums.slice(0, 3).join(', ')})` : '';
+      return {
+        error: `Cannot delete inbound receipt: Units from this batch have already been transferred or dispatched in outbound transactions${trackingInfo}. To preserve chain of custody, inbounded stock cannot be deleted.`,
+      };
+    }
+
+    // 5. Strict Safety Check 3: Deny if any unit has status other than PENDING_SERIAL
+    // (e.g. IN_WAREHOUSE, IN_BRANCH, IN_TRANSIT, SOLD, RESERVED)
     const { data: activeUnits, error: activeError } = await supabase
       .from('inventory_units')
       .select('serial_number, status')
@@ -887,32 +922,20 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
       return { error: activeError.message };
     }
 
-    const dispatchedUnits = (activeUnits || []).filter(
-      (u: any) => !['IN_WAREHOUSE', 'IN_BRANCH', 'PENDING_SERIAL'].includes(u.status)
+    const nonPendingUnits = (activeUnits || []).filter(
+      (u: any) => u.status !== 'PENDING_SERIAL'
     );
 
-    if (dispatchedUnits.length > 0) {
+    if (nonPendingUnits.length > 0) {
       return {
-        error: `Cannot delete this inbound receipt because ${dispatchedUnits.length} unit(s) from this batch have already been dispatched, reserved, or sold.`,
+        error: `Cannot delete inbound receipt: ${nonPendingUnits.length} unit(s) are active in stock (${nonPendingUnits[0].status}). Once inventory is received and inbounded, it cannot be deleted.`,
       };
     }
   }
 
-  // 4. Delete the transaction FIRST!
-  // NOTE: transaction_items references transactions(id) ON DELETE CASCADE,
-  // while transaction_items references inventory_units(serial_number) ON DELETE RESTRICT.
-  // Deleting the transaction first automatically cascades and deletes transaction_items,
-  // releasing the foreign key lock on inventory_units!
-  const { error: deleteTxnError } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('id', targetId);
-
-  if (deleteTxnError) {
-    return { error: `Failed to delete transaction record: ${deleteTxnError.message}` };
-  }
-
-  // 5. Delete inventory units (now unrestricted)
+  // 6. Safe Deletion Execution:
+  // If all units are strictly unassigned PENDING- placeholders with no outbounds,
+  // delete the placeholder inventory units FIRST so foreign keys are never violated.
   if (serials.length > 0) {
     const { error: deleteUnitsError } = await supabase
       .from('inventory_units')
@@ -920,8 +943,18 @@ export async function deleteInboundTransaction(transactionId: string): Promise<{
       .in('serial_number', serials);
 
     if (deleteUnitsError) {
-      return { error: `Receipt deleted, but failed to clean up inventory units: ${deleteUnitsError.message}` };
+      return { error: `Failed to remove placeholder inventory units: ${deleteUnitsError.message}` };
     }
+  }
+
+  // 7. Delete the transaction record only after inventory units have been safely cleared
+  const { error: deleteTxnError } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('id', targetId);
+
+  if (deleteTxnError) {
+    return { error: `Placeholder units cleared, but failed to delete transaction record: ${deleteTxnError.message}` };
   }
 
   return { error: null, deletedCount: serials.length };

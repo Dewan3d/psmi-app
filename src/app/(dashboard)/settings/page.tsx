@@ -46,6 +46,7 @@ import { formatNaira } from '@/lib/utils/currency';
 
 import ComboboxSelect from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
+import InboundDeleteBlockedModal from '../components/inbound-delete-blocked-modal';
 
 type Product = {
   sku: string;
@@ -1827,14 +1828,31 @@ function AccessoryDeletionSection() {
   }, []);
 
   const [txnToDelete, setTxnToDelete] = useState<any | null>(null);
+  const [blockedModalState, setBlockedModalState] = useState<{
+    isOpen: boolean;
+    trackingNumber?: string | null;
+    sku?: string | null;
+    modelName?: string | null;
+    totalItems?: number;
+    customMessage?: string | null;
+  }>({ isOpen: false });
 
   async function handleConfirmDelete() {
     if (!txnToDelete) return;
+    const target = txnToDelete;
     setIsDeleting(true);
-    const res = await deleteInboundTransaction(txnToDelete.id);
+    const res = await deleteInboundTransaction(target.id);
     setIsDeleting(false);
     if (res.error) {
-      alert(res.error);
+      setTxnToDelete(null);
+      setBlockedModalState({
+        isOpen: true,
+        trackingNumber: target.tracking_number,
+        sku: target.sku,
+        modelName: target.model_name,
+        totalItems: target.total_items,
+        customMessage: res.error,
+      });
     } else {
       setTxnToDelete(null);
       await load();
@@ -1913,6 +1931,17 @@ function AccessoryDeletionSection() {
           </div>
         }
         confirmText="Yes, Delete Receipt"
+      />
+
+      <InboundDeleteBlockedModal
+        isOpen={blockedModalState.isOpen}
+        onClose={() => setBlockedModalState((prev) => ({ ...prev, isOpen: false }))}
+        trackingNumber={blockedModalState.trackingNumber}
+        sku={blockedModalState.sku}
+        modelName={blockedModalState.modelName}
+        totalItems={blockedModalState.totalItems}
+        reason="OUTBOUND_DISPATCHED"
+        customMessage={blockedModalState.customMessage}
       />
     </div>
   );

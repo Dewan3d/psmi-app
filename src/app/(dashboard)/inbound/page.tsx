@@ -30,6 +30,8 @@ import {
   Scan,
   Trash2,
   Search,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   listInboundTransactions,
@@ -45,6 +47,7 @@ import { createClient } from '@/lib/supabase/client';
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
+import InboundDeleteBlockedModal from '../components/inbound-delete-blocked-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
 import { useUser } from '../components/user-context';
 
@@ -868,6 +871,34 @@ export default function InboundPage() {
     message: '',
   });
 
+  const [blockedModalState, setBlockedModalState] = useState<{
+    isOpen: boolean;
+    trackingNumber?: string | null;
+    sku?: string | null;
+    modelName?: string | null;
+    totalItems?: number;
+    reason?: 'SERIALS_UPLOADED' | 'OUTBOUND_DISPATCHED' | 'ACTIVE_STOCK' | 'GENERAL';
+    customMessage?: string | null;
+  }>({
+    isOpen: false,
+  });
+
+  function handleRequestDelete(txn: InboundSummary) {
+    if (txn.pending_items === 0) {
+      setBlockedModalState({
+        isOpen: true,
+        trackingNumber: txn.tracking_number,
+        sku: txn.sku,
+        modelName: txn.model_name,
+        totalItems: txn.total_items,
+        reason: 'SERIALS_UPLOADED',
+        customMessage: 'Physical serial numbers for all units in this receipt have already been uploaded and registered to warehouse inventory. Active inbounded stock cannot be deleted.',
+      });
+      return;
+    }
+    setTxnToDelete(txn);
+  }
+
   async function handleConfirmDelete() {
     if (!txnToDelete) return;
     const target = txnToDelete;
@@ -877,11 +908,14 @@ export default function InboundPage() {
     setTxnToDelete(null);
 
     if (res.error) {
-      setFeedback({
+      setBlockedModalState({
         isOpen: true,
-        type: 'error',
-        title: 'Delete Failed',
-        message: res.error,
+        trackingNumber: target.tracking_number,
+        sku: target.sku,
+        modelName: target.model_name,
+        totalItems: target.total_items,
+        reason: 'OUTBOUND_DISPATCHED',
+        customMessage: res.error,
       });
     } else {
       await fetchTransactions();
@@ -998,6 +1032,18 @@ export default function InboundPage() {
           </div>
         }
         confirmText="Yes, Delete Receipt"
+      />
+
+      {/* Stock Protection / Delete Denial Modal */}
+      <InboundDeleteBlockedModal
+        isOpen={blockedModalState.isOpen}
+        onClose={() => setBlockedModalState((prev) => ({ ...prev, isOpen: false }))}
+        trackingNumber={blockedModalState.trackingNumber}
+        sku={blockedModalState.sku}
+        modelName={blockedModalState.modelName}
+        totalItems={blockedModalState.totalItems}
+        reason={blockedModalState.reason}
+        customMessage={blockedModalState.customMessage}
       />
 
       {/* Feedback (Success / Error) Modal */}
@@ -1327,14 +1373,26 @@ export default function InboundPage() {
                           Details <ChevronRight className="w-3.5 h-3.5" />
                         </Link>
                         {!isViewer && (
-                          <button
-                            onClick={() => setTxnToDelete(txn)}
-                            disabled={isDeleteLoading}
-                            className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
-                            title="Delete inbound receipt"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          txn.pending_items === 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRequestDelete(txn)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 border border-slate-200/80 hover:border-rose-200 rounded-lg transition-all cursor-pointer"
+                              title="Protected: Serial numbers uploaded (Deletion prohibited)"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleRequestDelete(txn)}
+                              disabled={isDeleteLoading}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
+                              title="Cancel pending inbound receipt"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )
                         )}
                       </div>
                     </td>
