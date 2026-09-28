@@ -19,6 +19,20 @@ export async function signIn(formData: FormData): Promise<{ success?: boolean; e
     return { error: 'Invalid email or password. Please try again.' };
   }
 
+  // Gatekeeper check: is user approved by admin?
+  const user = data.user;
+  const isExplicitlyPending =
+    user.user_metadata?.is_approved === false ||
+    user.app_metadata?.is_approved === false;
+
+  if (isExplicitlyPending) {
+    await supabase.auth.signOut();
+    return {
+      error:
+        'Your account is pending administrator approval. Please wait for an admin to assign your role.',
+    };
+  }
+
   return { success: true };
 }
 

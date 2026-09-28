@@ -34,11 +34,14 @@ import {
   ShieldAlert,
   Copy,
   ExternalLink,
+  Clock,
+  UserCheck,
+  UserX,
 } from 'lucide-react';
 import Link from 'next/link';
 import { createProduct, updateProduct, deleteProduct, listProducts, bulkUpdatePrices } from '@/actions/products';
 import { createLocation, updateLocation, listLocations } from '@/actions/locations';
-import { listUsers, updateUserRole, assignUserLocation, inviteUser } from '@/actions/users';
+import { listUsers, updateUserRole, assignUserLocation, inviteUser, approveUser, rejectUser } from '@/actions/users';
 import { getSession } from '@/actions/auth';
 import { listInboundTransactions, deleteInboundTransaction } from '@/actions/inbound';
 import { UserRole, ProductCategory } from '@/lib/types/database';
@@ -77,6 +80,8 @@ type UserProfile = {
   location_id: string | null;
   created_at: string;
   location_name?: string;
+  email?: string;
+  is_approved?: boolean;
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -1395,32 +1400,22 @@ function UserSection({
   isAdmin: boolean;
   locations: Location[];
 }) {
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
+  const [activeTab, setActiveTab] = useState<'active' | 'pending'>('active');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pendingFormStates, setPendingFormStates] = useState<
+    Record<string, { role: UserRole; location_id: string }>
+  >({});
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
+  const [rejectConfirmUser, setRejectConfirmUser] = useState<UserProfile | null>(null);
+
+  // Manual Invite Form state
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>('VIEWER');
   const [inviteLocation, setInviteLocation] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  async function loadUsers() {
-    const result = await listUsers();
-    setUsers((result.data || []) as any);
-  }
-
-  useEffect(() => {
-    if (isAdmin) loadUsers();
-  }, [isAdmin]);
-
-  const totalPages = Math.ceil(users.length / ITEMS_PER_PAGE) || 1;
-  const paginatedUsers = users.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
   const [showInviteConfirm, setShowInviteConfirm] = useState(false);
   const [generatedLinkModal, setGeneratedLinkModal] = useState<{
     name: string;
@@ -1430,6 +1425,110 @@ function UserSection({
     emailSent?: boolean;
   } | null>(null);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function loadUsers() {
+    try {
+      const result = await listUsers();
+      if (result.active && result.pending) {
+        setActiveUsers(result.active as any);
+        setPendingUsers(result.pending as any);
+      } else {
+        const all = (result.data || []) as any[];
+        setActiveUsers(all.filter((u) => u.is_approved !== false));
+        setPendingUsers(all.filter((u) => u.is_approved === false));
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load user accounts.');
+    }
+  }
+
+  useEffect(() => {
+    if (isAdmin) loadUsers();
+  }, [isAdmin]);
+
+  // If pending requests arrive and user is on active tab, we don't force switch,
+  // but if active list is empty and pending has items, switch to pending tab.
+  useEffect(() => {
+    if (activeUsers.length === 0 && pendingUsers.length > 0) {
+      setActiveTab('pending');
+    }
+  }, [activeUsers.length, pendingUsers.length]);
+
+  // Filtered active users
+  const filteredActiveUsers = activeUsers.filter((u) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      u.full_name.toLowerCase().includes(q) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.location_name && u.location_name.toLowerCase().includes(q)) ||
+      u.role.toLowerCase().includes(q)
+    );
+  });
+
+  const totalPages = Math.ceil(filteredActiveUsers.length / ITEMS_PER_PAGE) || 1;
+  const paginatedActiveUsers = filteredActiveUsers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // ── Approval Handler ──────────────────────────────────────────
+  async function handleApprove(u: UserProfile) {
+    const formState = pendingFormStates[u.id] || {
+      role: (u.role as UserRole) || 'BRANCH_STAFF',
+      location_id: u.location_id || '',
+    };
+
+    setProcessingUserId(u.id);
+    setError(null);
+    setSuccess(null);
+
+    const res = await approveUser({
+      user_id: u.id,
+      role: formState.role,
+      location_id: formState.location_id || undefined,
+    });
+
+    setProcessingUserId(null);
+
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+
+    setSuccess(`Approved ${u.full_name} as ${formState.role.replace('_', ' ')}!`);
+    await loadUsers();
+  }
+
+  // ── Decline Handler ───────────────────────────────────────────
+  async function handleConfirmReject() {
+    if (!rejectConfirmUser) return;
+    const target = rejectConfirmUser;
+    setProcessingUserId(target.id);
+    setError(null);
+    setSuccess(null);
+
+    const res = await rejectUser({
+      user_id: target.id,
+    });
+
+    setProcessingUserId(null);
+    setRejectConfirmUser(null);
+
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+
+    setSuccess(`Registration request for ${target.full_name} declined and removed.`);
+    await loadUsers();
+  }
+
+  // ── Manual Direct Invite Flow ──────────────────────────────────
   function handleInvitePreSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -1477,9 +1576,10 @@ function UserSection({
 
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden border border-slate-100">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      {/* ── Section Header ────────────────────────────────────── */}
+      <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-violet-50 text-violet-600 rounded-xl">
+          <div className="p-2.5 bg-violet-50 text-violet-600 rounded-xl flex-shrink-0">
             <Users className="w-5 h-5" />
           </div>
           <div>
@@ -1487,22 +1587,83 @@ function UserSection({
               Staff Accounts & Access
             </h2>
             <p className="text-xs text-slate-400">
-              {users.length} active staff account(s)
+              {activeUsers.length} active staff · {pendingUsers.length} pending review
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowInvite(!showInvite)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors cursor-pointer shadow-sm"
-        >
-          <Mail className="w-3.5 h-3.5" /> Invite User
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Segmented Tab Switch */}
+          <div className="flex p-1 bg-slate-100 rounded-xl text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setActiveTab('active')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                activeTab === 'active'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Active Staff ({activeUsers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('pending')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'pending'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <span>Pending Approvals</span>
+              {pendingUsers.length > 0 && (
+                <span className="flex items-center gap-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-bold animate-pulse">
+                  {pendingUsers.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <button
+            onClick={() => setShowInvite(!showInvite)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-colors cursor-pointer border border-indigo-200/60"
+          >
+            <Mail className="w-3.5 h-3.5" /> Direct Invite
+          </button>
+        </div>
       </div>
 
+      {/* ── Status Messages ───────────────────────────────────── */}
+      {error && (
+        <div className="mx-5 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-medium text-red-700 flex items-center justify-between animate-fade-in">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+      {success && (
+        <div className="mx-5 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center justify-between animate-fade-in">
+          <span>{success}</span>
+          <button onClick={() => setSuccess(null)} className="text-emerald-500 hover:text-emerald-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Manual Invite Dropdown Drawer ─────────────────────── */}
       {showInvite && (
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 animate-fade-in">
+          <div className="mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Manual User Invitation
+            </h3>
+            <p className="text-xs text-slate-500">
+              Pre-create an approved account directly and generate a direct activation link.
+            </p>
+          </div>
           <form onSubmit={handleInvitePreSubmit} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Full Name *
@@ -1530,7 +1691,7 @@ function UserSection({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Role
@@ -1570,14 +1731,6 @@ function UserSection({
                 />
               </div>
             </div>
-            {error && (
-              <p className="text-xs text-red-600 font-medium">
-                {typeof error === 'string' && error !== '{}' ? error : 'Failed to send invite. Please try again.'}
-              </p>
-            )}
-            {success && (
-              <p className="text-xs text-emerald-600 font-semibold">{success}</p>
-            )}
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
@@ -1592,106 +1745,316 @@ function UserSection({
               <button
                 type="submit"
                 disabled={isPending}
-                className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60"
+                className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 cursor-pointer"
               >
                 {isPending ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Mail className="w-3.5 h-3.5" />
                 )}
-                {isPending ? 'Sending…' : 'Send Invite'}
+                {isPending ? 'Sending…' : 'Generate Invitation'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      <div className="divide-y divide-slate-100">
-        {users.length === 0 && (
-          <div className="p-12 text-center text-sm text-slate-400">
-            No users registered.
-          </div>
-        )}
-        {paginatedUsers.map((u) => (
-          <div
-            key={u.id}
-            className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-                {u.full_name.charAt(0).toUpperCase()}
+      {/* ── TAB 1: PENDING APPROVALS QUEUE ─────────────────────── */}
+      {activeTab === 'pending' && (
+        <div className="p-5 space-y-4">
+          {pendingUsers.length === 0 ? (
+            <div className="p-12 text-center flex flex-col items-center justify-center space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center mb-1">
+                <ShieldCheck className="w-6 h-6" />
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">
-                  {u.full_name}
-                </p>
-                {u.location_name && (
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {u.location_name}
-                  </p>
-                )}
-              </div>
+              <h3 className="text-sm font-bold text-slate-800">
+                All Access Requests Reviewed
+              </h3>
+              <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+                When new staff members create an account via the portal, their requests will arrive here immediately for role assignment and branch authorization.
+              </p>
             </div>
-            <span
-              className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${
-                u.role === 'ADMIN'
-                  ? 'bg-red-50 text-red-600 border border-red-100'
-                  : u.role === 'VIEWER'
-                  ? 'bg-blue-50 text-blue-600 border border-blue-100'
-                  : u.role === 'WAREHOUSE_MANAGER'
-                  ? 'bg-indigo-50 text-indigo-600 border border-indigo-100'
-                  : 'bg-slate-50 text-slate-600 border border-slate-200'
-              }`}
-            >
-              {u.role === 'VIEWER' ? 'VIEWER' : u.role?.replace('_', ' ')}
-            </span>
-          </div>
-        ))}
-      </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-1">
+                <p className="text-xs font-semibold text-slate-600">
+                  {pendingUsers.length} user request(s) waiting for approval
+                </p>
+                <span className="text-[11px] text-slate-400">
+                  Review identity & assign permissions
+                </span>
+              </div>
 
-      {/* ── 10-Item Pagination Controls ───────────────────────── */}
-      {users.length > 0 && (
-        <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
-          <span className="text-xs text-slate-500 font-medium">
-            Showing{' '}
-            <strong className="text-slate-800">
-              {Math.min(
-                (currentPage - 1) * ITEMS_PER_PAGE + 1,
-                users.length
-              )}
-            </strong>{' '}
-            to{' '}
-            <strong className="text-slate-800">
-              {Math.min(currentPage * ITEMS_PER_PAGE, users.length)}
-            </strong>{' '}
-            of <strong className="text-slate-800">{users.length}</strong> staff
-          </span>
+              {pendingUsers.map((u) => {
+                const currentForm = pendingFormStates[u.id] || {
+                  role: (u.role as UserRole) || 'BRANCH_STAFF',
+                  location_id: u.location_id || '',
+                };
 
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-              disabled={currentPage === 1}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" /> Previous
-            </button>
+                return (
+                  <div
+                    key={u.id}
+                    className="p-4 sm:p-5 bg-white border border-amber-200/80 rounded-2xl shadow-sm hover:border-amber-300 transition-all space-y-3.5 bg-gradient-to-r from-amber-50/20 to-transparent"
+                  >
+                    {/* Header Row: User Identity */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                          {u.full_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-slate-900">
+                              {u.full_name}
+                            </p>
+                            <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                              Pending Review
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 font-mono mt-0.5">
+                            {u.email || 'Email in auth profile'}
+                          </p>
+                        </div>
+                      </div>
 
-            <span className="px-3 py-1 text-xs font-semibold text-slate-700">
-              Page {currentPage} of {totalPages}
-            </span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Registered {new Date(u.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
 
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              Next <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+                    {/* Inline Role & Location Assignment */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                      <div>
+                        <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                          Role Assignment *
+                        </label>
+                        <select
+                          value={currentForm.role}
+                          onChange={(e) =>
+                            setPendingFormStates((prev) => ({
+                              ...prev,
+                              [u.id]: {
+                                role: e.target.value as UserRole,
+                                location_id: prev[u.id]?.location_id || u.location_id || '',
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        >
+                          <option value="BRANCH_STAFF">Branch Staff</option>
+                          <option value="WAREHOUSE_MANAGER">Warehouse Manager</option>
+                          <option value="VIEWER">Viewer (Read Only)</option>
+                          <option value="ADMIN">Admin (Full Control)</option>
+                        </select>
+                        <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                          {currentForm.role === 'ADMIN'
+                            ? '🛡️ Full access: SKU catalogue, locations, user permissions, audit logs.'
+                            : currentForm.role === 'WAREHOUSE_MANAGER'
+                            ? '📦 Operations: Inbound receiving, serial uploads, outbound transits.'
+                            : currentForm.role === 'VIEWER'
+                            ? '👁️ Read-only: View stock, sales, and analytics without write access.'
+                            : '🏪 Branch access: View stock, receive transfers, delivery notes.'}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                          Location Assignment
+                        </label>
+                        <select
+                          value={currentForm.location_id}
+                          onChange={(e) =>
+                            setPendingFormStates((prev) => ({
+                              ...prev,
+                              [u.id]: {
+                                role: prev[u.id]?.role || (u.role as UserRole) || 'BRANCH_STAFF',
+                                location_id: e.target.value,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        >
+                          <option value="">No specific location</option>
+                          {locations.map((loc) => (
+                            <option key={loc.id} value={loc.id}>
+                              {loc.name} ({loc.type})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Optional: restricts branch staff to this specific facility.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action Pairing */}
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setRejectConfirmUser(u)}
+                        disabled={processingUserId === u.id}
+                        className="px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                      >
+                        Decline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApprove(u)}
+                        disabled={processingUserId === u.id}
+                        className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {processingUserId === u.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
+                        <span>{processingUserId === u.id ? 'Granting Access…' : 'Approve & Grant Access'}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Invite User Confirmation Modal */}
+      {/* ── TAB 2: ACTIVE STAFF DIRECTORY ──────────────────────── */}
+      {activeTab === 'active' && (
+        <div>
+          {/* Quick Search */}
+          <div className="p-4 border-b border-slate-100 bg-slate-50/30">
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Search staff by name, email, or role..."
+                className="w-full pl-10 pr-4 py-2 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-800 placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {paginatedActiveUsers.length === 0 ? (
+              <div className="p-12 text-center text-xs text-slate-400">
+                {searchQuery ? 'No active staff match your search.' : 'No active staff members found.'}
+              </div>
+            ) : (
+              paginatedActiveUsers.map((u) => (
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                      {u.full_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {u.full_name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {u.email && (
+                          <span className="text-xs text-slate-400 font-mono">
+                            {u.email}
+                          </span>
+                        )}
+                        {u.location_name && (
+                          <span className="text-xs text-indigo-600 font-medium">
+                            • {u.location_name}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${
+                      u.role === 'ADMIN'
+                        ? 'bg-red-50 text-red-600 border border-red-100'
+                        : u.role === 'VIEWER'
+                        ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                        : u.role === 'WAREHOUSE_MANAGER'
+                        ? 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    }`}
+                  >
+                    {u.role === 'VIEWER' ? 'VIEWER' : u.role?.replace('_', ' ')}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Pagination Controls */}
+          {filteredActiveUsers.length > 0 && (
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+              <span className="text-xs text-slate-500 font-medium">
+                Showing{' '}
+                <strong className="text-slate-800">
+                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredActiveUsers.length)}
+                </strong>{' '}
+                to{' '}
+                <strong className="text-slate-800">
+                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredActiveUsers.length)}
+                </strong>{' '}
+                of <strong className="text-slate-800">{filteredActiveUsers.length}</strong> staff
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
+                </button>
+
+                <span className="px-3 py-1 text-xs font-semibold text-slate-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Decline Confirmation Modal ────────────────────────── */}
+      <ConfirmModal
+        isOpen={!!rejectConfirmUser}
+        onClose={() => setRejectConfirmUser(null)}
+        onConfirm={handleConfirmReject}
+        isLoading={!!processingUserId}
+        title="Decline Registration Request"
+        message={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to decline and remove access for{' '}
+              <strong className="text-slate-900">{rejectConfirmUser?.full_name}</strong> ({rejectConfirmUser?.email})?
+            </p>
+            <p className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-100">
+              This will reject their registration request and delete their pending account record.
+            </p>
+          </div>
+        }
+        confirmText="Yes, Decline Request"
+      />
+
+      {/* ── Manual Invite Confirmation Modal ──────────────────── */}
       <ConfirmModal
         isOpen={showInviteConfirm}
         onClose={() => setShowInviteConfirm(false)}
@@ -1700,24 +2063,24 @@ function UserSection({
         title="Confirm User Invitation"
         message={
           <div className="space-y-2">
-            <p>Are you sure you want to invite this user?</p>
+            <p>Are you sure you want to create an account for this user?</p>
             <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
               <p><strong className="text-slate-900">Name:</strong> {inviteName}</p>
               <p><strong className="text-slate-900">Email:</strong> {inviteEmail}</p>
               <p><strong className="text-slate-900">Assigned Role:</strong> {inviteRole}</p>
               {inviteLocation && (
                 <p>
-                  <strong className="text-slate-900">Assigned Branch:</strong>{' '}
+                  <strong className="text-slate-900">Assigned Location:</strong>{' '}
                   {locations.find((l) => l.id === inviteLocation)?.name || inviteLocation}
                 </p>
               )}
             </div>
           </div>
         }
-        confirmText="Yes, Send Invitation"
+        confirmText="Yes, Create Account"
       />
 
-      {/* Generated Direct Invite Link Modal */}
+      {/* ── Direct Link Modal ─────────────────────────────────── */}
       {generatedLinkModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-4">
@@ -1744,7 +2107,7 @@ function UserSection({
             <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
               <p className="font-semibold">Direct Activation Link</p>
               <p className="leading-relaxed">
-                Supabase automated email delivery is not configured on this project. We created the user account and generated this direct invitation link. Copy and send this link to the user (via email or WhatsApp) so they can set their password and log in.
+                Send this link to the user so they can set their password and log in.
               </p>
             </div>
 

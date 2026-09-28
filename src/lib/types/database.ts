@@ -42,6 +42,8 @@ export interface Profile {
   role: UserRole;
   location_id: string | null;
   created_at: string;
+  email?: string | null;
+  is_approved?: boolean;
 }
 
 export interface Product {

@@ -183,15 +183,23 @@ export default function LoginPage() {
           </form>
 
           {/* Links & Information */}
-          <div className="mt-6 text-center space-y-2 pt-2 border-t border-slate-800/80">
-            <Link
-              href="/reset-password"
-              className="inline-block text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              Forgot your password?
-            </Link>
-            <p className="text-slate-400 text-xs leading-relaxed">
-              Access is by invitation only. Contact your administrator.
+          <div className="mt-6 text-center space-y-2.5 pt-2 border-t border-slate-800/80">
+            <div className="flex items-center justify-between text-xs">
+              <Link
+                href="/reset-password"
+                className="font-medium text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Forgot password?
+              </Link>
+              <Link
+                href="/register"
+                className="font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                Register for access →
+              </Link>
+            </div>
+            <p className="text-slate-500 text-[11px] leading-relaxed pt-1">
+              New accounts require administrator approval before access is granted.
             </p>
           </div>
         </div>
