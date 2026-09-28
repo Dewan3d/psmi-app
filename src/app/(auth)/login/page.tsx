@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { signIn } from '@/actions/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Zap, Lock, Mail, Loader2, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Zap, Lock, Mail, Loader2, CheckCircle2, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -182,25 +182,27 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Links & Information */}
-          <div className="mt-6 text-center space-y-2.5 pt-2 border-t border-slate-800/80">
-            <div className="flex items-center justify-between text-xs">
+          {/* Links & Registration */}
+          <div className="mt-6 space-y-3 pt-3 border-t border-slate-800/80">
+            <Link
+              href="/register"
+              className="w-full py-2.5 px-4 font-semibold rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-white border border-slate-700/60 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm select-none touch-manipulation"
+            >
+              <span>Need an account? Request Staff Access</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+
+            <div className="flex items-center justify-between text-xs px-1">
               <Link
                 href="/reset-password"
-                className="font-medium text-slate-400 hover:text-slate-200 transition-colors"
+                className="text-slate-400 hover:text-slate-200 transition-colors"
               >
                 Forgot password?
               </Link>
-              <Link
-                href="/register"
-                className="font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
-              >
-                Register for access →
-              </Link>
+              <span className="text-slate-500 text-[11px]">
+                Requires admin approval
+              </span>
             </div>
-            <p className="text-slate-500 text-[11px] leading-relaxed pt-1">
-              New accounts require administrator approval before access is granted.
-            </p>
           </div>
         </div>
 
