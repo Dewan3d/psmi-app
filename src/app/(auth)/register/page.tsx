@@ -151,7 +151,7 @@ export default function RegisterPage() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   disabled={isSubmitting}
-                  placeholder="e.g. Busayo Sobamowo"
+                  placeholder="e.g. John Smith"
                   className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-950/80 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 shadow-sm transition-all font-medium disabled:opacity-50"
                 />
               </div>
