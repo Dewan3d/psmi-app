@@ -29,6 +29,18 @@ export async function getSales(filters?: {
   const supabase = await createClient();
 
   // 1. Fetch outbound transactions (B2B + B2C only)
+  // Check if search query matches any serial numbers in transaction_items
+  let matchedSerialTxnIds: string[] = [];
+  if (filters?.search) {
+    const cleanSearch = filters.search.trim();
+    const { data: matchedSn } = await supabase
+      .from('transaction_items')
+      .select('transaction_id')
+      .ilike('serial_number', `%${cleanSearch}%`)
+      .limit(100);
+    matchedSerialTxnIds = Array.from(new Set((matchedSn || []).map((m: any) => m.transaction_id).filter(Boolean)));
+  }
+
   // Query with sold_at prioritizing the actual date of sale; fallback gracefully if schema requires
   const buildQuery = (selectFields: string, useSoldAt: boolean = true) => {
     let q = supabase
@@ -54,7 +66,12 @@ export async function getSales(filters?: {
     }
 
     if (filters?.search) {
-      q = q.or(`customer_name.ilike.%${filters.search}%,tracking_number.ilike.%${filters.search}%,sales_manager.ilike.%${filters.search}%`);
+      const cleanSearch = filters.search.trim();
+      let searchClauses = `customer_name.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%,sales_manager.ilike.%${cleanSearch}%`;
+      if (matchedSerialTxnIds.length > 0) {
+        searchClauses += `,id.in.(${matchedSerialTxnIds.join(',')})`;
+      }
+      q = q.or(searchClauses);
     }
 
     const limit = filters?.limit || 50;
@@ -757,14 +774,6 @@ export async function fetchSalesPageData(params: {
 
   queryA = withDateFilters(queryA);
 
-  if (params.search) {
-    queryA = queryA.or(
-      `customer_name.ilike.%${params.search}%,tracking_number.ilike.%${params.search}%,sales_manager.ilike.%${params.search}%`
-    );
-  }
-
-  queryA = queryA.range(pageOffset, pageOffset + pageLimit - 1);
-
   // ══════════════════════════════════════════════════════════════
   // QUERY B — All matching transactions for stats + chart
   // Lighter payload: only financial and temporal fields + items
@@ -789,6 +798,30 @@ export async function fetchSalesPageData(params: {
     .limit(10000);
 
   queryB = withDateFilters(queryB);
+
+  if (params.search) {
+    const cleanSearch = params.search.trim();
+    // Also match by serial number in transaction_items
+    const { data: matchedSerialItems } = await supabase
+      .from('transaction_items')
+      .select('transaction_id')
+      .ilike('serial_number', `%${cleanSearch}%`)
+      .limit(100);
+
+    const serialTxnIds = Array.from(
+      new Set((matchedSerialItems || []).map((m: any) => m.transaction_id).filter(Boolean))
+    );
+
+    let searchClauses = `customer_name.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%,sales_manager.ilike.%${cleanSearch}%`;
+    if (serialTxnIds.length > 0) {
+      searchClauses += `,id.in.(${serialTxnIds.join(',')})`;
+    }
+
+    queryA = queryA.or(searchClauses);
+    queryB = queryB.or(searchClauses);
+  }
+
+  queryA = queryA.range(pageOffset, pageOffset + pageLimit - 1);
 
   // ══════════════════════════════════════════════════════════════
   // Execute both queries in parallel (2 round-trips instead of 12+)

@@ -39,6 +39,7 @@ import {
   AlertCircle,
   CalendarDays,
   Sparkles,
+  Copy,
 } from 'lucide-react';
 import {
   fetchSalesPageData,
@@ -837,6 +838,130 @@ function SaleNotesSection({
   );
 }
 
+// ── Serial Number Display & Copy Component for Sale Breakdown ──
+function SkuSerialsCell({
+  items,
+}: {
+  items: Array<{
+    serial_number: string;
+    sale_price: number | null;
+  }>;
+}) {
+  const [copiedSn, setCopiedSn] = useState<string | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Filter serialized devices vs non-serialized bulk accessories
+  const serializedItems = items.filter(
+    (i) => i.serial_number && i.serial_number !== 'N/A' && !i.serial_number.startsWith('NS-')
+  );
+  const nonSerializedCount = items.length - serializedItems.length;
+
+  const handleCopy = (sn: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(sn);
+    setCopiedSn(sn);
+    setTimeout(() => setCopiedSn(null), 1800);
+  };
+
+  const handleCopyAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = serializedItems.map((i) => i.serial_number).join(', ');
+    navigator.clipboard.writeText(text);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 1800);
+  };
+
+  if (serializedItems.length === 0 && nonSerializedCount === 0) {
+    return <span className="text-xs text-slate-400 italic">—</span>;
+  }
+
+  if (serializedItems.length === 0 && nonSerializedCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md border border-slate-200/60 font-medium">
+        <Package className="w-3 h-3 text-slate-400" />
+        Non-serialized ({nonSerializedCount} {nonSerializedCount === 1 ? 'unit' : 'units'})
+      </span>
+    );
+  }
+
+  // Show first 2 serials by default if more than 2, with expand toggle
+  const displayItems = isExpanded ? serializedItems : serializedItems.slice(0, 2);
+  const hasMore = serializedItems.length > 2;
+
+  return (
+    <div className="space-y-1.5 py-0.5 max-w-sm">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {displayItems.map((item) => {
+          const isCopied = copiedSn === item.serial_number;
+          return (
+            <div
+              key={item.serial_number}
+              onClick={(e) => handleCopy(item.serial_number, e)}
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-slate-50 hover:bg-indigo-50/80 text-slate-800 border border-slate-200/90 hover:border-indigo-300 transition-all cursor-pointer group shadow-2xs select-none"
+              title={`Serial: ${item.serial_number}${item.sale_price != null ? ` • ${formatNaira(item.sale_price)}` : ''}\nClick to copy`}
+            >
+              <span className="select-all tracking-tight font-semibold text-slate-900 group-hover:text-indigo-950">
+                {item.serial_number}
+              </span>
+              <span
+                className="text-slate-400 group-hover:text-indigo-600 transition-colors p-0.5"
+                aria-label={`Copy ${item.serial_number}`}
+              >
+                {isCopied ? (
+                  <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                ) : (
+                  <Copy className="w-3 h-3 opacity-60 group-hover:opacity-100" />
+                )}
+              </span>
+            </div>
+          );
+        })}
+
+        {hasMore && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(!isExpanded);
+            }}
+            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/80 rounded px-1.5 py-0.5 transition-colors cursor-pointer"
+          >
+            {isExpanded ? 'Show less' : `+${serializedItems.length - 2} more`}
+          </button>
+        )}
+
+        {serializedItems.length > 1 && (
+          <button
+            type="button"
+            onClick={handleCopyAll}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 hover:text-indigo-700 bg-slate-100/90 hover:bg-indigo-50 border border-slate-200/80 hover:border-indigo-200 rounded px-1.5 py-0.5 transition-colors cursor-pointer"
+            title="Copy all serial numbers separated by comma"
+          >
+            {copiedAll ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                <span className="text-emerald-700">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3 text-slate-400" />
+                <span>Copy All</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      {nonSerializedCount > 0 && (
+        <span className="block text-[10px] text-slate-400 italic">
+          + {nonSerializedCount} non-serialized {nonSerializedCount === 1 ? 'unit' : 'units'}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Expandable Sale Row ───────────────────────────────────────
 function SaleRow({
   sale,
@@ -916,16 +1041,19 @@ function SaleRow({
             </span>
           ) : (
             <div className="flex items-center gap-1.5 flex-wrap max-w-[260px]">
-              {Object.values(skuGroups).slice(0, 2).map((grp) => (
-                <span
-                  key={grp.sku}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200/80"
-                  title={`${grp.model_name} (${grp.sku}) — ${grp.items.length} unit(s)`}
-                >
-                  <span className="font-semibold text-indigo-600">{grp.items.length}×</span>
-                  <span className="truncate max-w-[120px]">{grp.model_name}</span>
-                </span>
-              ))}
+              {Object.values(skuGroups).slice(0, 2).map((grp) => {
+                const serSns = grp.items.filter((i) => i.serial_number && !i.serial_number.startsWith('NS-')).map((i) => i.serial_number);
+                return (
+                  <span
+                    key={grp.sku}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200/80"
+                    title={`${grp.model_name} (${grp.sku}) — ${grp.items.length} unit(s)${serSns.length > 0 ? `\nSN: ${serSns.join(', ')}` : ''}`}
+                  >
+                    <span className="font-semibold text-indigo-600">{grp.items.length}×</span>
+                    <span className="truncate max-w-[120px]">{grp.model_name}</span>
+                  </span>
+                );
+              })}
               {Object.values(skuGroups).length > 2 && (
                 <span
                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 cursor-help"
@@ -1104,57 +1232,63 @@ function SaleRow({
                     No physical units have been dispatched yet for this sale order.
                   </div>
                 ) : (
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                        <th className="px-4 py-2.5">Product Model</th>
-                        <th className="px-4 py-2.5">SKU Code</th>
-                        <th className="px-4 py-2.5 text-center">Quantity Sold</th>
-                        <th className="px-4 py-2.5 text-right">Avg Unit Price</th>
-                        <th className="px-4 py-2.5 text-right">Total Amount Sold (₦)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {Object.values(skuGroups).map((grp) => {
-                        const skuTotalAmount = grp.items.reduce((sum, i) => sum + (i.sale_price || 0), 0);
-                        const avgUnitPrice = grp.items.length > 0 ? skuTotalAmount / grp.items.length : 0;
-                        const hasUnpriced = grp.items.some((i) => i.sale_price == null || i.sale_price === 0);
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-white border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          <th className="px-4 py-2.5">Product Model</th>
+                          <th className="px-4 py-2.5">SKU Code</th>
+                          <th className="px-4 py-2.5 min-w-[200px]">Serial Number(s) (SN)</th>
+                          <th className="px-4 py-2.5 text-center">Quantity Sold</th>
+                          <th className="px-4 py-2.5 text-right">Avg Unit Price</th>
+                          <th className="px-4 py-2.5 text-right">Total Amount Sold (₦)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {Object.values(skuGroups).map((grp) => {
+                          const skuTotalAmount = grp.items.reduce((sum, i) => sum + (i.sale_price || 0), 0);
+                          const avgUnitPrice = grp.items.length > 0 ? skuTotalAmount / grp.items.length : 0;
+                          const hasUnpriced = grp.items.some((i) => i.sale_price == null || i.sale_price === 0);
 
-                        return (
-                          <tr key={grp.sku} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="px-4 py-3">
-                              <span className="text-xs font-bold text-slate-800 block">
-                                {grp.model_name}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className="text-xs font-mono font-medium text-slate-600 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200/60">
-                                {grp.sku}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                {grp.items.length} {grp.items.length === 1 ? 'unit' : 'units'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <span className="text-xs font-mono text-slate-700">
-                                {formatNaira(avgUnitPrice)}
-                              </span>
-                              {hasUnpriced && (
-                                <span className="block text-[10px] text-amber-600 font-medium">⚠️ Unpriced unit</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <span className="text-xs font-mono font-bold text-slate-900">
-                                {formatNaira(skuTotalAmount)}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                          return (
+                            <tr key={grp.sku} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="px-4 py-3 align-middle">
+                                <span className="text-xs font-bold text-slate-800 block">
+                                  {grp.model_name}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <span className="text-xs font-mono font-medium text-slate-600 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200/60">
+                                  {grp.sku}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 align-middle">
+                                <SkuSerialsCell items={grp.items} />
+                              </td>
+                              <td className="px-4 py-3 text-center align-middle">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                  {grp.items.length} {grp.items.length === 1 ? 'unit' : 'units'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right align-middle">
+                                <span className="text-xs font-mono text-slate-700">
+                                  {formatNaira(avgUnitPrice)}
+                                </span>
+                                {hasUnpriced && (
+                                  <span className="block text-[10px] text-amber-600 font-medium">⚠️ Unpriced unit</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right align-middle">
+                                <span className="text-xs font-mono font-bold text-slate-900">
+                                  {formatNaira(skuTotalAmount)}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 
@@ -1529,7 +1663,7 @@ export default function SalesPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search customer, rep, model, SKU..."
+                placeholder="Search customer, rep, model, SKU, serial number..."
                 className="w-full pl-9 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 focus:bg-white transition-all shadow-xs"
               />
               {searchQuery && (
