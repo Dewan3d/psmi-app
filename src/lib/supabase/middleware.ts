@@ -49,6 +49,7 @@ export async function updateSession(request: NextRequest) {
   // If no user and not on an auth page, redirect to login
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
+    request.nextUrl.pathname.startsWith('/register') ||
     request.nextUrl.pathname.startsWith('/reset-password') ||
     request.nextUrl.pathname.startsWith('/set-password');
 
@@ -58,10 +59,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If user is on login page but already authenticated, redirect to dashboard
+  // If user is on an auth page but already authenticated, redirect to dashboard
   if (
     isAuthenticated &&
-    request.nextUrl.pathname.startsWith('/login')
+    (request.nextUrl.pathname.startsWith('/login') ||
+      request.nextUrl.pathname.startsWith('/register'))
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/';

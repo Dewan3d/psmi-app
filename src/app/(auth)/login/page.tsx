@@ -182,26 +182,22 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Links & Registration */}
+          {/* Links & Switch to Register */}
           <div className="mt-6 space-y-3 pt-3 border-t border-slate-800/80">
-            <Link
-              href="/register"
-              className="w-full py-2.5 px-4 font-semibold rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-white border border-slate-700/60 transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm select-none touch-manipulation"
-            >
-              <span>Need an account? Request Staff Access</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-
-            <div className="flex items-center justify-between text-xs px-1">
+            <div className="flex items-center justify-between text-xs">
               <Link
                 href="/reset-password"
                 className="text-slate-400 hover:text-slate-200 transition-colors"
               >
                 Forgot password?
               </Link>
-              <span className="text-slate-500 text-[11px]">
-                Requires admin approval
-              </span>
+              <Link
+                href="/register"
+                className="font-semibold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
+              >
+                <span>Don't have an account? Sign up</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
           </div>
         </div>
