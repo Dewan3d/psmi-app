@@ -484,18 +484,6 @@ export default function InboundDetailPage() {
 
   function handleRequestDelete() {
     if (!detail) return;
-    if (pendingCount === 0) {
-      setBlockedModalState({
-        isOpen: true,
-        trackingNumber: detail.tracking_number,
-        sku: detail.items[0]?.sku || null,
-        modelName: null,
-        totalItems: totalCount,
-        reason: 'SERIALS_UPLOADED',
-        customMessage: 'Physical serial numbers for all units in this receipt have already been uploaded and registered to warehouse inventory. Active inbounded stock cannot be deleted.',
-      });
-      return;
-    }
     setShowDeleteConfirm(true);
   }
 
@@ -513,7 +501,7 @@ export default function InboundDetailPage() {
         sku: detail.items[0]?.sku || null,
         modelName: null,
         totalItems: totalCount,
-        reason: 'OUTBOUND_DISPATCHED',
+        reason: res.blockedReason || 'GENERAL',
         customMessage: res.error,
       });
     } else {
@@ -633,27 +621,15 @@ export default function InboundDetailPage() {
               </span>
             )}
             {!isViewer && (
-              pendingCount === 0 ? (
-                <button
-                  type="button"
-                  onClick={handleRequestDelete}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-xl transition-colors cursor-pointer"
-                  title="Protected: Serial numbers uploaded (Deletion prohibited)"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  Receipt Protected
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleRequestDelete}
-                  disabled={isDeleting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  Delete Receipt
-                </button>
-              )
+              <button
+                type="button"
+                onClick={handleRequestDelete}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete Receipt
+              </button>
             )}
           </div>
         </div>

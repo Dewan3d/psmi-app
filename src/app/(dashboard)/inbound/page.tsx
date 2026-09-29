@@ -898,18 +898,6 @@ export default function InboundPage() {
   });
 
   function handleRequestDelete(txn: InboundSummary) {
-    if (txn.pending_items === 0) {
-      setBlockedModalState({
-        isOpen: true,
-        trackingNumber: txn.tracking_number,
-        sku: txn.sku,
-        modelName: txn.model_name,
-        totalItems: txn.total_items,
-        reason: 'SERIALS_UPLOADED',
-        customMessage: 'Physical serial numbers for all units in this receipt have already been uploaded and registered to warehouse inventory. Active inbounded stock cannot be deleted.',
-      });
-      return;
-    }
     setTxnToDelete(txn);
   }
 
@@ -928,7 +916,7 @@ export default function InboundPage() {
         sku: target.sku,
         modelName: target.model_name,
         totalItems: target.total_items,
-        reason: 'OUTBOUND_DISPATCHED',
+        reason: res.blockedReason || 'GENERAL',
         customMessage: res.error,
       });
     } else {
@@ -1401,26 +1389,15 @@ export default function InboundPage() {
                           Details <ChevronRight className="w-3.5 h-3.5" />
                         </Link>
                         {!isViewer && (
-                          txn.pending_items === 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => handleRequestDelete(txn)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 border border-slate-200/80 hover:border-rose-200 rounded-lg transition-all cursor-pointer"
-                              title="Protected: Serial numbers uploaded (Deletion prohibited)"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleRequestDelete(txn)}
-                              disabled={isDeleteLoading}
-                              className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
-                              title="Cancel pending inbound receipt"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )
+                          <button
+                            type="button"
+                            onClick={() => handleRequestDelete(txn)}
+                            disabled={isDeleteLoading}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50/60 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-all cursor-pointer"
+                            title="Delete inbound receipt"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
                     </td>

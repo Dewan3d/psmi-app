@@ -2477,25 +2477,6 @@ export default function OutboundPage() {
         </div>
       )}
 
-      {/* ── Donations Program Banner (in Donations mode) ── */}
-      {mainView === 'DONATIONS' && (
-        <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700 shrink-0">
-              <HeartHandshake className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-emerald-950">
-                PSMI CSR & Donations Registry
-              </p>
-              <p className="text-xs text-emerald-700 mt-0.5">
-                Dedicated tracker for donation programs (PB200, accessories, and power station grants). Completely isolated from commercial sales metrics.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Table Container ──────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden">
         {/* Requirement 3: Category Selector (Power Station default) */}
@@ -2573,12 +2554,6 @@ export default function OutboundPage() {
                 </button>
               </div>
             </div>
-
-            {categoryFilter === 'POWER_STATION' && (
-              <span className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/60 font-medium">
-                Showing all dispatches with Power Stations included
-              </span>
-            )}
           </div>
         )}
 
