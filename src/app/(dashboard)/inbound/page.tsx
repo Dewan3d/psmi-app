@@ -50,6 +50,7 @@ import FeedbackModal from '../components/feedback-modal';
 import InboundDeleteBlockedModal from '../components/inbound-delete-blocked-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
 import { useUser } from '../components/user-context';
+import { DateFilterBar, TemporalScope, getTemporalDateRange, matchesTemporalRange } from '../components/date-filter-bar';
 
 type InboundSummary = {
   id: string;
@@ -796,6 +797,9 @@ export default function InboundPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'COMPLETE'>('ALL');
+  const [dateScope, setDateScope] = useState<TemporalScope>('all');
+  const [customFrom, setCustomFrom] = useState<string | undefined>();
+  const [customTo, setCustomTo] = useState<string | undefined>();
   const [pendingHandoff, setPendingHandoff] = useState<{
     isOpen: boolean;
     txnId: string;
@@ -810,6 +814,11 @@ export default function InboundPage() {
     qty: 0,
   });
 
+  const activeTemporalRange = useMemo(
+    () => getTemporalDateRange(dateScope, customFrom, customTo),
+    [dateScope, customFrom, customTo]
+  );
+
   const pendingCount = useMemo(
     () => transactions.filter((t) => t.pending_items > 0).length,
     [transactions]
@@ -822,6 +831,11 @@ export default function InboundPage() {
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return transactions.filter((t) => {
+      // Date filter
+      if (!matchesTemporalRange(t.created_at, activeTemporalRange)) {
+        return false;
+      }
+
       // Status filter
       if (statusFilter === 'PENDING' && t.pending_items === 0) return false;
       if (statusFilter === 'COMPLETE' && t.pending_items > 0) return false;
@@ -838,7 +852,7 @@ export default function InboundPage() {
         (t.notes && t.notes.toLowerCase().includes(q))
       );
     });
-  }, [transactions, searchQuery, statusFilter]);
+  }, [transactions, searchQuery, statusFilter, activeTemporalRange]);
 
   const totalPages = Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE) || 1;
   const paginatedTxns = filteredTransactions.slice(
@@ -1103,6 +1117,20 @@ export default function InboundPage() {
             </button>
           )}
         </div>
+
+        {/* Date Filter Bar */}
+        <DateFilterBar
+          currentScope={dateScope}
+          customFrom={customFrom}
+          customTo={customTo}
+          onScopeChange={(scope, from, to) => {
+            setDateScope(scope);
+            setCustomFrom(from);
+            setCustomTo(to);
+            setCurrentPage(1);
+          }}
+          className="self-start sm:self-center"
+        />
 
         {/* Filter Badges */}
         <div className="flex items-center gap-1.5 self-start sm:self-center overflow-x-auto pb-1 sm:pb-0">

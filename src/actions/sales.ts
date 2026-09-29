@@ -48,7 +48,8 @@ export async function getSales(filters?: {
       .select(selectFields, { count: 'exact' })
       .eq('type', 'OUTBOUND')
       .eq('verified', true)
-      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
+      .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
+      .or('is_donation.is.null,is_donation.eq.false');
 
     if (useSoldAt) {
       q = q.order('sold_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
@@ -235,7 +236,8 @@ export async function getSalesSummaryStats(filters?: {
     .select('id, verified, sold_at, created_at, amount_paid, total_order_amount')
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
-    .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C']);
+    .in('route', filters?.route ? [filters.route] : ['B2B', 'B2C'])
+    .or('is_donation.is.null,is_donation.eq.false');
 
   if (filters?.from_date && filters?.to_date) {
     query = query.or(`and(sold_at.gte.${filters.from_date},sold_at.lte.${filters.to_date}),and(sold_at.is.null,created_at.gte.${filters.from_date},created_at.lte.${filters.to_date})`);
@@ -422,6 +424,7 @@ export async function getSalesTimeSeries(params: {
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
     .in('route', params.route ? [params.route] : ['B2B', 'B2C'])
+    .or('is_donation.is.null,is_donation.eq.false')
     .order('sold_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true });
 
@@ -769,6 +772,7 @@ export async function fetchSalesPageData(params: {
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
     .in('route', routes)
+    .or('is_donation.is.null,is_donation.eq.false')
     .order('sold_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
 
@@ -793,6 +797,7 @@ export async function fetchSalesPageData(params: {
     .eq('type', 'OUTBOUND')
     .eq('verified', true)
     .in('route', routes)
+    .or('is_donation.is.null,is_donation.eq.false')
     .order('sold_at', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: true })
     .limit(10000);

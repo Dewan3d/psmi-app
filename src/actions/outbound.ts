@@ -76,6 +76,8 @@ export async function createOutboundTransaction(data: {
   customer_name?: string;
   sales_manager?: string;
   sold_at?: string;
+  is_donation?: boolean;
+  donation_program?: string;
   item_prices?: { serial_number: string; sale_price: number }[];
 }): Promise<{ data: Transaction | null; error: string | null }> {
   const supabase = await createClient();
@@ -111,6 +113,13 @@ export async function createOutboundTransaction(data: {
     sales_manager: data.sales_manager || null,
   };
 
+  if (data.is_donation !== undefined) {
+    insertPayload.is_donation = Boolean(data.is_donation);
+  }
+  if (data.donation_program) {
+    insertPayload.donation_program = data.donation_program;
+  }
+
   if (data.sold_at) {
     insertPayload.sold_at = new Date(data.sold_at).toISOString();
   }
@@ -121,8 +130,10 @@ export async function createOutboundTransaction(data: {
     .select()
     .single();
 
-  if (txnError && txnError.message?.includes('sold_at')) {
-    delete insertPayload.sold_at;
+  if (txnError && (txnError.message?.includes('is_donation') || txnError.message?.includes('donation_program') || txnError.message?.includes('sold_at'))) {
+    if (txnError.message?.includes('is_donation')) delete insertPayload.is_donation;
+    if (txnError.message?.includes('donation_program')) delete insertPayload.donation_program;
+    if (txnError.message?.includes('sold_at')) delete insertPayload.sold_at;
     const retry = await supabase
       .from('transactions')
       .insert(insertPayload)
@@ -499,6 +510,8 @@ export interface OutboundDetailData {
   customer_phone?: string | null;
   sales_manager: string | null;
   sold_at: string | null;
+  is_donation?: boolean | null;
+  donation_program?: string | null;
   created_at: string;
   created_by_name: string | null;
   created_by_email: string | null;
@@ -545,6 +558,8 @@ export async function getOutboundDetail(
         customer_name,
         sales_manager,
         sold_at,
+        is_donation,
+        donation_program,
         created_at,
         from_location_id,
         to_location_id,
@@ -604,6 +619,8 @@ export async function getOutboundDetail(
       customer_name: txn.customer_name,
       sales_manager: txn.sales_manager,
       sold_at: txn.sold_at,
+      is_donation: Boolean(txn.is_donation),
+      donation_program: txn.donation_program || null,
       created_at: txn.created_at,
       created_by_name: txn.profiles?.full_name || null,
       created_by_email: null,

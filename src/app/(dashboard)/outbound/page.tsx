@@ -38,6 +38,10 @@ import {
   FileText,
   Image as ImageIcon,
   Search,
+  HeartHandshake,
+  Zap,
+  SunMedium,
+  Layers,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { reserveUnits, createOutboundTransaction, getFifoSerialsForQuantity, deleteOutboundTransaction, markTransferDelivered } from '@/actions/outbound';
@@ -60,6 +64,7 @@ import FeedbackModal from '../components/feedback-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
 import { OutboundDetailModal } from './components/outbound-detail-modal';
 import { useUser } from '../components/user-context';
+import { DateFilterBar, TemporalScope, getTemporalDateRange, matchesTemporalRange } from '../components/date-filter-bar';
 
 type OutboundSummary = {
   id: string;
@@ -76,6 +81,12 @@ type OutboundSummary = {
   model_name: string;
   customer_name?: string | null;
   sales_manager?: string | null;
+  has_power_station?: boolean;
+  has_shs?: boolean;
+  has_accessories?: boolean;
+  is_donation?: boolean;
+  donation_program?: string | null;
+  categories_present?: string[];
 };
 
 type Product = {
@@ -376,6 +387,8 @@ function NewOutboundModal({
   onSuccess: () => void;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [outboundPurpose, setOutboundPurpose] = useState<'SALE' | 'DONATION'>('SALE');
+  const [donationProgram, setDonationProgram] = useState('');
   const [route, setRoute] = useState<'TB' | 'B2B' | 'B2C' | ''>('');
   const [fromLocationId, setFromLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
@@ -547,13 +560,24 @@ function NewOutboundModal({
     if (!route) { setError('Select a route'); return; }
     if (!fromLocationId) { setError('Select source location'); return; }
     if (route === 'TB' && !toLocationId) { setError('Select destination branch for Transfer'); return; }
-    if ((route === 'B2B' || route === 'B2C') && !customerName.trim()) {
-      setError('Please enter a customer or client name');
-      return;
-    }
-    if ((route === 'B2B' || route === 'B2C') && !salesManager.trim()) {
-      setError('Please enter who made the sale (Sales Manager)');
-      return;
+    if (outboundPurpose === 'DONATION') {
+      if (!customerName.trim()) {
+        setError('Please enter the Beneficiary / Recipient organization name');
+        return;
+      }
+      if (!donationProgram.trim()) {
+        setError('Please enter the CSR / Donation Program name');
+        return;
+      }
+    } else {
+      if ((route === 'B2B' || route === 'B2C') && !customerName.trim()) {
+        setError('Please enter a customer or client name');
+        return;
+      }
+      if ((route === 'B2B' || route === 'B2C') && !salesManager.trim()) {
+        setError('Please enter who made the sale (Sales Manager)');
+        return;
+      }
     }
     if (selectedSerials.length === 0) { setError('Add at least one serial number'); return; }
 
@@ -569,8 +593,8 @@ function NewOutboundModal({
         return;
       }
 
-      // Build prices array with foolproof fallback
-      const pricesArray = selectedSerials.map((sn) => {
+      // Build prices array with foolproof fallback (zeroed for donations)
+      const pricesArray = outboundPurpose === 'DONATION' ? [] : selectedSerials.map((sn) => {
         let itemSku = serialSkuMap[sn];
         if (!itemSku && sn.startsWith('NS-')) {
           const parts = sn.split('-');
@@ -613,10 +637,12 @@ function NewOutboundModal({
         serial_numbers: selectedSerials,
         user_id: userId,
         notes: notes || undefined,
-        customer_name: (route === 'B2B' || route === 'B2C') ? customerName.trim() : undefined,
-        sales_manager: (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
+        customer_name: (route === 'B2B' || route === 'B2C' || outboundPurpose === 'DONATION') ? customerName.trim() : undefined,
+        sales_manager: outboundPurpose === 'DONATION' ? (salesManager.trim() || 'CSR / Donations Team') : (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
         sold_at: soldAt || undefined,
-        item_prices: (route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined,
+        is_donation: outboundPurpose === 'DONATION',
+        donation_program: outboundPurpose === 'DONATION' ? donationProgram.trim() : undefined,
+        item_prices: outboundPurpose === 'DONATION' ? undefined : ((route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined),
       });
       if (result.error) { setError(result.error); setShowConfirm(false); return; }
       setShowConfirm(false);
@@ -774,9 +800,57 @@ function NewOutboundModal({
           {/* Step 1: Route & Locations */}
           {step === 1 && (
             <div className="px-6 py-6 space-y-5">
+              {/* Outbound Purpose Selection: Commercial vs Donation Program */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Outbound Purpose</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Specify whether this outbound is a commercial sale/transfer or a CSR donation.</p>
+                <div className="grid grid-cols-2 gap-3 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutboundPurpose('SALE');
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all cursor-pointer text-left ${
+                      outboundPurpose === 'SALE'
+                        ? 'border-indigo-600 bg-indigo-50/50 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-xl ${outboundPurpose === 'SALE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Commercial / Distribution</p>
+                      <p className="text-[10px] text-slate-500">Standard sales, B2B dispatches, or branch transfers.</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutboundPurpose('DONATION');
+                      if (!route) setRoute('B2C'); // Default friendly route for donations
+                    }}
+                    className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all cursor-pointer text-left ${
+                      outboundPurpose === 'DONATION'
+                        ? 'border-emerald-600 bg-emerald-50/50 shadow-xs'
+                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-xl ${outboundPurpose === 'DONATION' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                      <HeartHandshake className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Donation Program (CSR)</p>
+                      <p className="text-[10px] text-slate-500">Free grants, PB200 & power station donations. Excluded from sales.</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <h3 className="text-sm font-semibold text-slate-800">Select Route Type</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Choose how and where this inventory is being moved or sold.</p>
+                <p className="text-xs text-slate-400 mt-0.5">Choose how and where this inventory is being moved.</p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -842,7 +916,41 @@ function NewOutboundModal({
                 )}
               </div>
 
-              {(route === 'B2B' || route === 'B2C') && (
+              {/* Donation Program Fields vs Commercial Fields */}
+              {outboundPurpose === 'DONATION' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/60">
+                  <div>
+                    <label className="block text-xs font-semibold text-emerald-950 mb-1">
+                      Beneficiary / Recipient Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="e.g. Rural Health Center, Green Earth Initiative"
+                      className="w-full px-3.5 py-2.5 text-sm border border-emerald-300/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/30 text-slate-800 placeholder:text-slate-400 bg-white"
+                    />
+                    <p className="text-[10px] text-emerald-700/80 mt-1">
+                      Name of the beneficiary institution, school, or recipient.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-emerald-950 mb-1">
+                      CSR / Donation Program Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={donationProgram}
+                      onChange={(e) => setDonationProgram(e.target.value)}
+                      placeholder="e.g. Bluetti Lighting Rural Lives 2026"
+                      className="w-full px-3.5 py-2.5 text-sm border border-emerald-300/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/30 text-slate-800 placeholder:text-slate-400 bg-white"
+                    />
+                    <p className="text-[10px] text-emerald-700/80 mt-1">
+                      Title of the donation drive or corporate social initiative.
+                    </p>
+                  </div>
+                </div>
+              ) : (route === 'B2B' || route === 'B2C') && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1500,7 +1608,24 @@ function NewOutboundModal({
                 </div>
               </div>
 
-              {(route === 'B2B' || route === 'B2C') && (
+              {outboundPurpose === 'DONATION' ? (
+                <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl">
+                      <HeartHandshake className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-emerald-950">Donation Program Order (Grant — ₦0)</p>
+                      <p className="text-xs text-emerald-700 mt-0.5">
+                        Program: <strong>{donationProgram || 'General CSR Initiative'}</strong> · Beneficiary: <strong>{customerName}</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full border border-emerald-300">
+                    CSR Grant
+                  </span>
+                </div>
+              ) : (route === 'B2B' || route === 'B2C') && (
                 <div className="space-y-3 pt-1">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
@@ -1872,8 +1997,6 @@ function NewOutboundModal({
 }
 
 // ── Main Page ─────────────────────────────────────────────────
-const ITEMS_PER_PAGE = 10;
-
 export default function OutboundPage() {
   const { isViewer } = useUser();
   const [transactions, setTransactions] = useState<OutboundSummary[]>([]);
@@ -1890,27 +2013,96 @@ export default function OutboundPage() {
     message: string;
   } | null>(null);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
+
+  // Pagination states: min 20 default
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [isPageAnimating, setIsPageAnimating] = useState(false);
+
+  // Main Tabs: Operational Dispatches vs Dedicated Donations Hub
+  const [mainView, setMainView] = useState<'DISPATCHES' | 'DONATIONS'>('DISPATCHES');
+
+  // Sub Tabs for Dispatches
   const [activeTab, setActiveTab] = useState<'ALL' | 'NEEDS_WAYBILL' | 'TB' | 'SALES' | 'VERIFIED'>('ALL');
+
+  // Requirement 3: Category filter with POWER_STATION as DEFAULT
+  const [categoryFilter, setCategoryFilter] = useState<'POWER_STATION' | 'ALL' | 'SHS' | 'ACCESSORIES'>('POWER_STATION');
+
+  // Requirement 1: Temporal Date Filter
+  const [dateScope, setDateScope] = useState<TemporalScope>('all');
+  const [customFrom, setCustomFrom] = useState<string | undefined>();
+  const [customTo, setCustomTo] = useState<string | undefined>();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOutbound, setSelectedOutbound] = useState<OutboundSummary | null>(null);
 
-  const needsWaybillCount = useMemo(() => {
-    return transactions.filter((t) => !t.verified && (t.route === 'B2B' || t.route === 'B2C')).length;
+  const activeTemporalRange = useMemo(
+    () => getTemporalDateRange(dateScope, customFrom, customTo),
+    [dateScope, customFrom, customTo]
+  );
+
+  // Donations count
+  const donationsCount = useMemo(() => {
+    return transactions.filter((t) => t.is_donation).length;
   }, [transactions]);
+
+  const needsWaybillCount = useMemo(() => {
+    return transactions.filter((t) => !t.is_donation && !t.verified && (t.route === 'B2B' || t.route === 'B2C')).length;
+  }, [transactions]);
+
+  // Smooth page change handler with Apple-style fluid animation
+  const handlePageChange = (newPage: number) => {
+    if (newPage === currentPage) return;
+    setIsPageAnimating(true);
+    setTimeout(() => {
+      setCurrentPage(newPage);
+      setIsPageAnimating(false);
+    }, 150);
+  };
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((txn) => {
-      if (activeTab === 'NEEDS_WAYBILL') {
-        if (txn.verified || (txn.route !== 'B2B' && txn.route !== 'B2C')) return false;
-      } else if (activeTab === 'TB') {
-        if (txn.route !== 'TB') return false;
-      } else if (activeTab === 'SALES') {
-        if (txn.route !== 'B2B' && txn.route !== 'B2C') return false;
-      } else if (activeTab === 'VERIFIED') {
-        if (!txn.verified) return false;
+      // 1. Separate Main View: Dispatches vs Donations
+      if (mainView === 'DONATIONS') {
+        if (!txn.is_donation) return false;
+      } else {
+        // Dispatches view excludes donations so donations live strictly in their hub
+        if (txn.is_donation) return false;
       }
 
+      // 2. Category Filter (Requirement 3: Default is POWER_STATION)
+      // When a power station and a panel/accessory are outbounded together, has_power_station is true
+      if (mainView === 'DISPATCHES') {
+        if (categoryFilter === 'POWER_STATION') {
+          if (!txn.has_power_station) return false;
+        } else if (categoryFilter === 'SHS') {
+          // SHS alone (no power station)
+          if (!txn.has_shs || txn.has_power_station) return false;
+        } else if (categoryFilter === 'ACCESSORIES') {
+          // Accessories alone without power station or SHS
+          if (txn.has_power_station || txn.has_shs) return false;
+        }
+      }
+
+      // 3. Temporal Date Range Filter (Requirement 1)
+      if (!matchesTemporalRange(txn.created_at, activeTemporalRange)) {
+        return false;
+      }
+
+      // 4. Sub-Tab filter (only relevant in Dispatches view)
+      if (mainView === 'DISPATCHES') {
+        if (activeTab === 'NEEDS_WAYBILL') {
+          if (txn.verified || (txn.route !== 'B2B' && txn.route !== 'B2C')) return false;
+        } else if (activeTab === 'TB') {
+          if (txn.route !== 'TB') return false;
+        } else if (activeTab === 'SALES') {
+          if (txn.route !== 'B2B' && txn.route !== 'B2C') return false;
+        } else if (activeTab === 'VERIFIED') {
+          if (!txn.verified) return false;
+        }
+      }
+
+      // 5. Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchTracking = txn.tracking_number?.toLowerCase().includes(q);
@@ -1920,15 +2112,21 @@ export default function OutboundPage() {
         const matchFrom = txn.from_name?.toLowerCase().includes(q);
         const matchCustomer = txn.customer_name?.toLowerCase().includes(q);
         const matchSalesMgr = txn.sales_manager?.toLowerCase().includes(q);
-        return Boolean(matchTracking || matchModel || matchSku || matchTo || matchFrom || matchCustomer || matchSalesMgr);
+        const matchProgram = txn.donation_program?.toLowerCase().includes(q);
+        return Boolean(matchTracking || matchModel || matchSku || matchTo || matchFrom || matchCustomer || matchSalesMgr || matchProgram);
       }
 
       return true;
     });
-  }, [transactions, activeTab, searchQuery]);
+  }, [transactions, mainView, categoryFilter, activeTemporalRange, activeTab, searchQuery]);
 
-  const totalPages = Math.ceil(filteredTransactions.length / ITEMS_PER_PAGE) || 1;
-  const paginatedTxns = filteredTransactions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  // Requirement 2: Real-time stock sent out totals
+  const totalStocksSentOut = useMemo(() => {
+    return filteredTransactions.reduce((acc, t) => acc + (t.item_count || 0), 0);
+  }, [filteredTransactions]);
+
+  const totalPages = Math.ceil(filteredTransactions.length / pageSize) || 1;
+  const paginatedTxns = filteredTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   async function fetchTransactions() {
     setLoading(true);
@@ -1944,6 +2142,8 @@ export default function OutboundPage() {
         notes,
         customer_name,
         sales_manager,
+        is_donation,
+        donation_program,
         from_loc:locations!from_location_id(name),
         to_loc:locations!to_location_id(name),
         profiles(full_name),
@@ -1951,13 +2151,13 @@ export default function OutboundPage() {
           serial_number,
           inventory_units(
             sku,
-            products(model_name)
+            products(model_name, category_badge)
           )
         )
       `)
       .eq('type', 'OUTBOUND')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(1000);
 
     if (fetchError) { setError(fetchError.message); setLoading(false); return; }
 
@@ -1967,6 +2167,16 @@ export default function OutboundPage() {
         const firstItem = items[0];
         const sku = firstItem?.inventory_units?.sku || '';
         const modelName = firstItem?.inventory_units?.products?.model_name || '';
+
+        // Category breakdown of all items in this transaction
+        const categories: string[] = items.map(
+          (ti: any) => ti.inventory_units?.products?.category_badge || 'OTHER'
+        );
+
+        const hasPowerStation = categories.some((c) => c === 'POWER_STATION');
+        const hasSHS = categories.some((c) => c === 'SHS');
+        const hasAccessories = categories.some((c) => c === 'ACCESSORIES');
+
         return {
           id: t.id,
           tracking_number: t.tracking_number,
@@ -1977,11 +2187,17 @@ export default function OutboundPage() {
           customer_name: t.customer_name || null,
           sales_manager: t.sales_manager || null,
           from_name: t.from_loc?.name || 'Warehouse',
-          to_name: t.to_loc?.name || t.customer_name || 'Customer / B2B',
+          to_name: t.to_loc?.name || t.customer_name || (t.is_donation ? 'Donation Recipient' : 'Customer / B2B'),
           user_name: t.profiles?.full_name || 'System',
           item_count: items.length,
           sku,
           model_name: modelName,
+          has_power_station: hasPowerStation,
+          has_shs: hasSHS,
+          has_accessories: hasAccessories,
+          categories_present: Array.from(new Set(categories)),
+          is_donation: Boolean(t.is_donation),
+          donation_program: t.donation_program || null,
         };
       })
     );
@@ -2149,15 +2365,17 @@ export default function OutboundPage() {
       />
 
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Outbound Operations</h1>
-          <p className="text-sm text-slate-500 mt-1">Manage dispatch workflows, branch transfers, and sales orders.</p>
+          <p className="text-sm text-slate-500 mt-1">
+            Manage power station dispatches, branch transfers, sales, and donation programs.
+          </p>
         </div>
         {!isViewer && (
           <button
             onClick={() => setShowNewModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 self-start sm:self-auto cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Create Outbound Order
@@ -2165,8 +2383,72 @@ export default function OutboundPage() {
         )}
       </div>
 
-      {/* ── Operational Banner: Needs Waybill Alert ── */}
-      {needsWaybillCount > 0 && (
+      {/* ── Top Level View Switcher: Dispatches vs Donations Hub ── */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 pb-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setMainView('DISPATCHES');
+              setCurrentPage(1);
+            }}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              mainView === 'DISPATCHES'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200/70'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Outbound Dispatches</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                mainView === 'DISPATCHES' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {transactions.filter((t) => !t.is_donation).length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMainView('DONATIONS');
+              setCurrentPage(1);
+            }}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              mainView === 'DONATIONS'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100/80 border border-emerald-200/80'
+            }`}
+          >
+            <HeartHandshake className="w-4 h-4" />
+            <span>CSR & Donations</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                mainView === 'DONATIONS' ? 'bg-emerald-700 text-white' : 'bg-emerald-200/70 text-emerald-900'
+              }`}
+            >
+              {donationsCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Global Date Filter Bar (Requirement 1) */}
+        <DateFilterBar
+          currentScope={dateScope}
+          customFrom={customFrom}
+          customTo={customTo}
+          onScopeChange={(scope, from, to) => {
+            setDateScope(scope);
+            setCustomFrom(from);
+            setCustomTo(to);
+            setCurrentPage(1);
+          }}
+        />
+      </div>
+
+      {/* ── Operational Banner: Needs Waybill Alert (in Dispatches mode) ── */}
+      {mainView === 'DISPATCHES' && needsWaybillCount > 0 && (
         <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0">
@@ -2195,74 +2477,186 @@ export default function OutboundPage() {
         </div>
       )}
 
+      {/* ── Donations Program Banner (in Donations mode) ── */}
+      {mainView === 'DONATIONS' && (
+        <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700 shrink-0">
+              <HeartHandshake className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-950">
+                PSMI CSR & Donations Registry
+              </p>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                Dedicated tracker for donation programs (PB200, accessories, and power station grants). Completely isolated from commercial sales metrics.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Table Container ──────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden">
+        {/* Requirement 3: Category Selector (Power Station default) */}
+        {mainView === 'DISPATCHES' && (
+          <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                <Layers className="w-3.5 h-3.5" />
+                Category Filter:
+              </span>
+              <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200/80 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter('POWER_STATION');
+                    setCurrentPage(1);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    categoryFilter === 'POWER_STATION'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>Power Stations</span>
+                  <span className={`text-[10px] px-1 py-0.2 rounded-full font-bold ${categoryFilter === 'POWER_STATION' ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    Default
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter('ALL');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    categoryFilter === 'ALL'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  All Outbounds
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter('SHS');
+                    setCurrentPage(1);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    categoryFilter === 'SHS'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <SunMedium className="w-3 h-3" />
+                  <span>SHS Only</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryFilter('ACCESSORIES');
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    categoryFilter === 'ACCESSORIES'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Accessories
+                </button>
+              </div>
+            </div>
+
+            {categoryFilter === 'POWER_STATION' && (
+              <span className="text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/60 font-medium">
+                Showing all dispatches with Power Stations included
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Filter and Search Bar */}
         <div className="p-4 sm:px-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none">
-            <button
-              onClick={() => { setActiveTab('ALL'); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                activeTab === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              All ({transactions.length})
-            </button>
+          {/* Tabs for Dispatches */}
+          {mainView === 'DISPATCHES' ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none">
+              <button
+                onClick={() => { setActiveTab('ALL'); setCurrentPage(1); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'ALL'
+                    ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Status
+              </button>
 
-            <button
-              onClick={() => { setActiveTab('NEEDS_WAYBILL'); setCurrentPage(1); }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                activeTab === 'NEEDS_WAYBILL'
-                  ? 'bg-amber-600 text-white shadow-xs font-semibold'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200/60 hover:bg-amber-100'
-              }`}
-            >
-              Needs Waybill
-              {needsWaybillCount > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                  activeTab === 'NEEDS_WAYBILL' ? 'bg-white text-amber-800' : 'bg-amber-600 text-white'
-                }`}>
-                  {needsWaybillCount}
-                </span>
-              )}
-            </button>
+              <button
+                onClick={() => { setActiveTab('NEEDS_WAYBILL'); setCurrentPage(1); }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'NEEDS_WAYBILL'
+                    ? 'bg-amber-600 text-white shadow-xs font-semibold'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200/60 hover:bg-amber-100'
+                }`}
+              >
+                Needs Waybill
+                {needsWaybillCount > 0 && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    activeTab === 'NEEDS_WAYBILL' ? 'bg-white text-amber-800' : 'bg-amber-600 text-white'
+                  }`}>
+                    {needsWaybillCount}
+                  </span>
+                )}
+              </button>
 
-            <button
-              onClick={() => { setActiveTab('TB'); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                activeTab === 'TB'
-                  ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Branch Transfers
-            </button>
+              <button
+                onClick={() => { setActiveTab('TB'); setCurrentPage(1); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'TB'
+                    ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Branch Transfers
+              </button>
 
-            <button
-              onClick={() => { setActiveTab('SALES'); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                activeTab === 'SALES'
-                  ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Direct Sales
-            </button>
+              <button
+                onClick={() => { setActiveTab('SALES'); setCurrentPage(1); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'SALES'
+                    ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Direct Sales
+              </button>
 
-            <button
-              onClick={() => { setActiveTab('VERIFIED'); setCurrentPage(1); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                activeTab === 'VERIFIED'
-                  ? 'bg-emerald-600 text-white shadow-xs font-semibold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Verified / Delivered
-            </button>
-          </div>
+              <button
+                onClick={() => { setActiveTab('VERIFIED'); setCurrentPage(1); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === 'VERIFIED'
+                    ? 'bg-emerald-600 text-white shadow-xs font-semibold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Verified / Delivered
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-emerald-900 bg-emerald-100/70 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" />
+                Donations & Grant Records ({filteredTransactions.length})
+              </span>
+            </div>
+          )}
 
           {/* Search Box */}
           <div className="relative w-full lg:w-72 shrink-0">
@@ -2274,8 +2668,8 @@ export default function OutboundPage() {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search tracking, SKU, dest, rep..."
-              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              placeholder="Search tracking, SKU, recipient, rep..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 placeholder-slate-400"
             />
             {searchQuery && (
               <button
@@ -2310,9 +2704,15 @@ export default function OutboundPage() {
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="p-4 bg-slate-50 rounded-2xl mb-3"><FileX className="w-8 h-8 text-slate-300" /></div>
             <p className="text-sm font-semibold text-slate-700">No outbound orders match your filter</p>
-            <p className="text-xs text-slate-400 mt-1">Try clearing your search query or switching tabs.</p>
+            <p className="text-xs text-slate-400 mt-1">Try clearing your search query or switching category / date presets.</p>
             <button
-              onClick={() => { setActiveTab('ALL'); setSearchQuery(''); setCurrentPage(1); }}
+              onClick={() => {
+                setActiveTab('ALL');
+                setCategoryFilter('POWER_STATION');
+                setDateScope('all');
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
               className="mt-3 text-xs text-indigo-600 font-medium hover:underline cursor-pointer"
             >
               Reset all filters
@@ -2324,13 +2724,13 @@ export default function OutboundPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-slate-100">
-                  {['Tracking Number', 'Route', 'Destination', 'Status', 'Items', 'Date', ''].map((h) => (
-                    <th key={h} className={`text-left text-xs font-medium text-slate-500 uppercase tracking-wider p-4 pb-3 ${h === 'Items' ? 'text-center' : h === 'Date' ? 'text-right' : ''}`}>{h}</th>
+                <tr className="border-b border-slate-100 bg-slate-50/40">
+                  {['Tracking / Product', 'Route / Type', mainView === 'DONATIONS' ? 'Beneficiary & Program' : 'Destination', 'Status', 'Units Sent', 'Date', ''].map((h) => (
+                    <th key={h} className={`text-left text-xs font-semibold text-slate-500 uppercase tracking-wider p-4 pb-3 ${h === 'Units Sent' ? 'text-center' : h === 'Date' ? 'text-right' : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className={`divide-y divide-slate-50 transition-all duration-200 ${isPageAnimating ? 'opacity-30 translate-y-1' : 'opacity-100 translate-y-0'}`}>
                 {paginatedTxns.map((txn) => {
                   const route = routeConfig[txn.route] || { label: txn.route, color: 'bg-slate-100 text-slate-700', icon: null };
                   const needsVerify = !txn.verified && (txn.route === 'B2B' || txn.route === 'B2C');
@@ -2343,35 +2743,56 @@ export default function OutboundPage() {
                     >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><ArrowUpRight className="w-4 h-4" /></div>
+                          <div className={`p-2 rounded-xl ${txn.is_donation ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>
+                            {txn.is_donation ? <HeartHandshake className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                          </div>
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">
-                              {txn.model_name || 'Unknown Product'}{' '}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-semibold text-slate-800">
+                                {txn.model_name || 'Unknown Product'}
+                              </p>
+                              {txn.has_power_station && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  <Zap className="w-2.5 h-2.5" /> Power Station
+                                </span>
+                              )}
                               {txn.sku && (
                                 <span className="text-xs font-normal text-slate-400 font-mono">({txn.sku})</span>
                               )}
-                            </p>
+                            </div>
                             <p className="text-xs text-slate-500 font-mono mt-0.5">{txn.tracking_number || '—'}</p>
                           </div>
                         </div>
                       </td>
                       <td className="p-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full ${route.color}`}>
-                          {route.icon}{route.label}
-                        </span>
+                        {txn.is_donation ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <HeartHandshake className="w-3.5 h-3.5" />
+                            CSR Donation
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full ${route.color}`}>
+                            {route.icon}{route.label}
+                          </span>
+                        )}
                       </td>
                       <td className="p-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-slate-700">{txn.to_name}</span>
                           <span className="text-xs text-slate-400 mt-0.5">From: {txn.from_name}</span>
-                          {txn.customer_name && txn.customer_name !== txn.to_name && (
+                          {txn.donation_program && (
+                            <span className="text-[11px] font-bold text-emerald-700 mt-0.5 flex items-center gap-1">
+                              Program: {txn.donation_program}
+                            </span>
+                          )}
+                          {!txn.is_donation && txn.customer_name && txn.customer_name !== txn.to_name && (
                             <span className="text-[11px] font-semibold text-violet-600 mt-0.5 flex items-center gap-1">
                               <User className="w-3 h-3" /> {txn.customer_name}
                             </span>
                           )}
                           {txn.sales_manager && (
                             <span className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
-                              <span className="text-slate-400">Rep:</span> {txn.sales_manager}
+                              <span className="text-slate-400">{txn.is_donation ? 'Authorized:' : 'Rep:'}</span> {txn.sales_manager}
                             </span>
                           )}
                         </div>
@@ -2380,7 +2801,7 @@ export default function OutboundPage() {
                         {txn.verified ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-full px-2.5 py-1">
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            {txn.route === 'TB' ? 'Stock Delivered' : 'Verified'}
+                            {txn.route === 'TB' ? 'Stock Delivered' : txn.is_donation ? 'Donated & Verified' : 'Verified'}
                           </span>
                         ) : txn.route === 'TB' ? (
                           isViewer ? (
@@ -2425,7 +2846,11 @@ export default function OutboundPage() {
                           </span>
                         )}
                       </td>
-                      <td className="p-4 text-center font-semibold text-slate-800">{txn.item_count}</td>
+                      <td className="p-4 text-center">
+                        <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg font-mono text-xs">
+                          {txn.item_count}
+                        </span>
+                      </td>
                       <td className="p-4 text-right">
                         <div className="flex flex-col items-end">
                           <span className="text-sm text-slate-700">{new Date(txn.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -2482,42 +2907,98 @@ export default function OutboundPage() {
               </tbody>
             </table>
 
-            {/* ── 10-Item Pagination Controls ───────────────────────── */}
-            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50">
+            {/* ── Requirement 2: Real-time Outbound Stocks Summary Bar ──── */}
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Outbound Volume Summary:
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Total Dispatches:</span>
+                    <strong className="text-sm font-bold text-slate-900 font-mono">
+                      {filteredTransactions.length}
+                    </strong>
+                  </div>
+                  <div className="bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-medium">Total Stocks Sent Out:</span>
+                    <strong className="text-sm font-bold text-indigo-700 font-mono">
+                      {totalStocksSentOut} units
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Per Page Selector (Requirement 2: 20, 30, 40, 50, 100) */}
+              <div className="flex items-center gap-2 self-end md:self-auto">
+                <span className="text-xs text-slate-500 font-medium">Rows per page:</span>
+                <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                  {([20, 30, 40, 50, 100] as const).map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => {
+                        setPageSize(size);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                        pageSize === size
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Apple-Grade Smooth Pagination Controls ───────────────────────── */}
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white">
               <span className="text-xs text-slate-500 font-medium">
                 Showing{' '}
                 <strong className="text-slate-800">
-                  {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredTransactions.length)}
+                  {Math.min((currentPage - 1) * pageSize + 1, filteredTransactions.length)}
                 </strong>{' '}
                 to{' '}
                 <strong className="text-slate-800">
-                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredTransactions.length)}
+                  {Math.min(currentPage * pageSize, filteredTransactions.length)}
                 </strong>{' '}
                 of <strong className="text-slate-800">{filteredTransactions.length}</strong> orders
                 {filteredTransactions.length !== transactions.length && (
                   <span className="text-slate-400 font-normal ml-1">
-                    (filtered from {transactions.length})
+                    (filtered from {transactions.length} total)
                   </span>
                 )}
               </span>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  onClick={() => handlePageChange(Math.max(currentPage - 1, 1))}
                   disabled={currentPage === 1}
-                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all flex items-center gap-1 cursor-pointer"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" /> Previous
                 </button>
 
-                <span className="px-3 py-1 text-xs font-semibold text-slate-700">
-                  Page {currentPage} of {totalPages}
-                </span>
+                <div className="flex items-center gap-1 px-2">
+                  <span className="px-2.5 py-1 text-xs font-bold text-slate-800 bg-slate-100 rounded-lg">
+                    {currentPage}
+                  </span>
+                  <span className="text-xs text-slate-400">/</span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    {totalPages}
+                  </span>
+                </div>
 
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                  onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all flex items-center gap-1 cursor-pointer"
                 >
                   Next <ChevronRight className="w-3.5 h-3.5" />
                 </button>

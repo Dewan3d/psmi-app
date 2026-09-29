@@ -87,6 +87,8 @@ export interface Transaction {
   payment_status?: 'PAID' | 'PARTIAL' | 'PENDING' | null;
   total_order_amount?: number | null;
   total_units_ordered?: number | null;
+  is_donation?: boolean | null;
+  donation_program?: string | null;
   created_at: string;
 }
 
