@@ -9,7 +9,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { OutboundRoute, Transaction } from '@/lib/types/database';
+import type { OutboundRoute, Transaction } from '@/lib/types/database';
 import { sendWeChatOutboundNotification } from '@/lib/wechat';
 import { revalidatePath } from 'next/cache';
 
@@ -24,43 +24,51 @@ export async function reserveUnits(data: {
 
   const reserved: string[] = [];
   const errors: { serial_number: string; error: string }[] = [];
+  const cleanSerials = data.serial_numbers.map((s) => s.trim()).filter(Boolean);
 
-  // Reserve each unit individually to handle partial failures
-  // In production, use a Supabase RPC with SELECT FOR UPDATE for true locking
-  for (const sn of data.serial_numbers) {
-    // Check current status
-    const { data: unit, error: fetchError } = await supabase
+  // Fast chunked batching (200 units per batch) to eliminate Vercel timeouts and network overhead
+  const CHUNK_SIZE = 200;
+  for (let i = 0; i < cleanSerials.length; i += CHUNK_SIZE) {
+    const chunk = cleanSerials.slice(i, i + CHUNK_SIZE);
+
+    // 1. Fetch valid units in this chunk
+    const { data: units, error: fetchError } = await supabase
       .from('inventory_units')
       .select('serial_number, status')
-      .eq('serial_number', sn)
-      .single();
+      .in('serial_number', chunk);
 
-    if (fetchError || !unit) {
-      errors.push({ serial_number: sn, error: 'Serial number not found' });
+    if (fetchError) {
+      chunk.forEach((sn) => errors.push({ serial_number: sn, error: fetchError.message }));
       continue;
     }
 
-    if (unit.status !== 'IN_WAREHOUSE' && unit.status !== 'IN_BRANCH') {
-      errors.push({
-        serial_number: sn,
-        error: `Cannot reserve: current status is ${unit.status}`,
-      });
-      continue;
+    const unitMap = new Map((units || []).map((u) => [u.serial_number, u.status]));
+    const validSerials: string[] = [];
+
+    for (const sn of chunk) {
+      const status = unitMap.get(sn);
+      if (!status) {
+        errors.push({ serial_number: sn, error: 'Serial number not found' });
+      } else if (status !== 'IN_WAREHOUSE' && status !== 'IN_BRANCH') {
+        errors.push({ serial_number: sn, error: `Cannot reserve: current status is ${status}` });
+      } else {
+        validSerials.push(sn);
+      }
     }
 
-    // Attempt to reserve (optimistic concurrency via status check)
-    const { error: updateError } = await supabase
-      .from('inventory_units')
-      .update({ status: 'RESERVED' })
-      .eq('serial_number', sn)
-      .in('status', ['IN_WAREHOUSE', 'IN_BRANCH']);
+    if (validSerials.length > 0) {
+      const { error: updateError } = await supabase
+        .from('inventory_units')
+        .update({ status: 'RESERVED' })
+        .in('serial_number', validSerials)
+        .in('status', ['IN_WAREHOUSE', 'IN_BRANCH']);
 
-    if (updateError) {
-      errors.push({ serial_number: sn, error: updateError.message });
-      continue;
+      if (updateError) {
+        validSerials.forEach((sn) => errors.push({ serial_number: sn, error: updateError.message }));
+      } else {
+        reserved.push(...validSerials);
+      }
     }
-
-    reserved.push(sn);
   }
 
   return { reserved, errors };
@@ -205,6 +213,184 @@ export async function createOutboundTransaction(data: {
   }
 
   return { data: transaction, error: null };
+}
+
+// ── Fast Chunked Background Outbound Actions ─────────────────
+// Allows large dispatches (1,000+ units) to start immediately and process
+// in lightweight 200-unit background chunks without Vercel timeout errors.
+
+export async function initiateOutboundTransaction(data: {
+  route: OutboundRoute;
+  from_location_id: string;
+  to_location_id?: string;
+  total_units: number;
+  user_id: string;
+  notes?: string;
+  customer_name?: string;
+  sales_manager?: string;
+  sold_at?: string;
+  is_donation?: boolean;
+  donation_program?: string;
+}): Promise<{ data: Transaction | null; error: string | null }> {
+  const supabase = await createClient();
+
+  const insertPayload: any = {
+    type: 'OUTBOUND',
+    route: data.route,
+    from_location_id: data.from_location_id,
+    to_location_id: data.to_location_id || null,
+    user_id: data.user_id,
+    notes: data.notes || null,
+    customer_name: data.customer_name || null,
+    sales_manager: data.sales_manager || null,
+    total_units_ordered: data.total_units,
+    verified: false,
+  };
+
+  if (data.is_donation !== undefined) {
+    insertPayload.is_donation = Boolean(data.is_donation);
+  }
+  if (data.donation_program) {
+    insertPayload.donation_program = data.donation_program;
+  }
+  if (data.sold_at) {
+    insertPayload.sold_at = new Date(data.sold_at).toISOString();
+  }
+
+  let { data: transaction, error: txnError } = await supabase
+    .from('transactions')
+    .insert(insertPayload)
+    .select()
+    .single();
+
+  if (txnError && (txnError.message?.includes('is_donation') || txnError.message?.includes('donation_program') || txnError.message?.includes('sold_at'))) {
+    if (txnError.message?.includes('is_donation')) delete insertPayload.is_donation;
+    if (txnError.message?.includes('donation_program')) delete insertPayload.donation_program;
+    if (txnError.message?.includes('sold_at')) delete insertPayload.sold_at;
+    const retry = await supabase
+      .from('transactions')
+      .insert(insertPayload)
+      .select()
+      .single();
+    transaction = retry.data;
+    txnError = retry.error;
+  }
+
+  if (txnError) {
+    return { data: null, error: `Failed to initiate outbound: ${txnError.message}` };
+  }
+
+  return { data: transaction, error: null };
+}
+
+export async function processOutboundBatchChunk(data: {
+  transaction_id: string;
+  serial_numbers: string[];
+  item_prices?: { serial_number: string; sale_price: number }[];
+}): Promise<{ processed: number; error: string | null }> {
+  const supabase = await createClient();
+  const cleanSerials = data.serial_numbers.map((s) => s.trim()).filter(Boolean);
+
+  if (cleanSerials.length === 0) {
+    return { processed: 0, error: null };
+  }
+
+  const priceMap = new Map<string, number>();
+  if (data.item_prices) {
+    for (const ip of data.item_prices) {
+      priceMap.set(ip.serial_number.trim(), ip.sale_price);
+    }
+  }
+
+  // 1. Insert transaction items for this chunk
+  const itemRows = cleanSerials.map((sn) => ({
+    transaction_id: data.transaction_id,
+    serial_number: sn,
+    sale_price: priceMap.get(sn) ?? null,
+  }));
+
+  const { error: itemsError } = await supabase
+    .from('transaction_items')
+    .insert(itemRows);
+
+  if (itemsError) {
+    return { processed: 0, error: `Failed to insert transaction items: ${itemsError.message}` };
+  }
+
+  // 2. Update units status to IN_TRANSIT
+  const { error: updateError } = await supabase
+    .from('inventory_units')
+    .update({ status: 'IN_TRANSIT' })
+    .in('serial_number', cleanSerials);
+
+  if (updateError) {
+    return { processed: cleanSerials.length, error: `Failed to update status to IN_TRANSIT: ${updateError.message}` };
+  }
+
+  return { processed: cleanSerials.length, error: null };
+}
+
+export async function finalizeOutboundTransaction(data: {
+  transaction_id: string;
+  route: OutboundRoute;
+  from_location_id: string;
+  to_location_id?: string;
+  user_id: string;
+  items_count: number;
+  notes?: string;
+}): Promise<{ success: boolean; error: string | null }> {
+  const supabase = await createClient();
+
+  // 1. Calculate total order amount from all inserted items
+  const { data: items } = await supabase
+    .from('transaction_items')
+    .select('sale_price')
+    .eq('transaction_id', data.transaction_id);
+
+  let totalAmount = 0;
+  if (items) {
+    for (const item of items) {
+      if (item.sale_price) totalAmount += Number(item.sale_price);
+    }
+  }
+
+  await supabase
+    .from('transactions')
+    .update({
+      total_order_amount: totalAmount > 0 ? totalAmount : null,
+      total_units_ordered: data.items_count,
+    })
+    .eq('id', data.transaction_id);
+
+  // 2. Send WeChat notification (async non-blocking)
+  try {
+    const [{ data: fromLoc }, { data: toLoc }, { data: profile }, { data: txn }] = await Promise.all([
+      supabase.from('locations').select('name').eq('id', data.from_location_id).single(),
+      data.to_location_id ? supabase.from('locations').select('name').eq('id', data.to_location_id).single() : Promise.resolve({ data: null }),
+      supabase.from('profiles').select('full_name').eq('id', data.user_id).single(),
+      supabase.from('transactions').select('tracking_number').eq('id', data.transaction_id).single(),
+    ]);
+
+    sendWeChatOutboundNotification({
+      trackingNumber: txn?.tracking_number || 'N/A',
+      route: data.route,
+      fromLocation: fromLoc?.name || 'Main Warehouse',
+      toLocation: toLoc?.name || (data.route === 'B2B' ? 'Business Partner' : data.route === 'B2C' ? 'Customer Direct' : 'Branch Destination'),
+      itemsCount: data.items_count,
+      dispatchedBy: profile?.full_name || undefined,
+      notes: data.notes || undefined,
+    }).catch((err) => console.error('WeChat alert error:', err));
+  } catch (err) {
+    console.error('Error in WeChat dispatch alert:', err);
+  }
+
+  try {
+    revalidatePath('/outbound');
+    revalidatePath('/inventory');
+    revalidatePath('/');
+  } catch {}
+
+  return { success: true, error: null };
 }
 
 export async function cancelOutbound(

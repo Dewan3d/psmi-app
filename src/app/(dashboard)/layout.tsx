@@ -31,6 +31,7 @@ import {
 import { signOut } from '@/actions/auth';
 import GlobalSearchBar from './components/global-search-bar';
 import { UserProvider, useUser } from './components/user-context';
+import { OutboundProgressProvider } from './components/outbound-progress-context';
 import { NotificationBellPopover } from './components/notification-popover';
 import { UserProfileDropdown } from './components/user-profile-dropdown';
 
@@ -235,7 +236,9 @@ export default function DashboardLayout({
 }) {
   return (
     <UserProvider>
-      <DashboardShell>{children}</DashboardShell>
+      <OutboundProgressProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </OutboundProgressProvider>
     </UserProvider>
   );
 }

@@ -64,6 +64,7 @@ import FeedbackModal from '../components/feedback-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
 import { OutboundDetailModal } from './components/outbound-detail-modal';
 import { useUser } from '../components/user-context';
+import { useOutboundProgress } from '../components/outbound-progress-context';
 import { DateFilterBar, TemporalScope, getTemporalDateRange, matchesTemporalRange } from '../components/date-filter-bar';
 
 type OutboundSummary = {
@@ -77,6 +78,7 @@ type OutboundSummary = {
   to_name: string;
   user_name: string;
   item_count: number;
+  total_units_ordered?: number | null;
   sku: string;
   model_name: string;
   customer_name?: string | null;
@@ -386,6 +388,7 @@ function NewOutboundModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { startOutboundJob } = useOutboundProgress();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [outboundPurpose, setOutboundPurpose] = useState<'SALE' | 'DONATION'>('SALE');
   const [donationProgram, setDonationProgram] = useState('');
@@ -597,68 +600,68 @@ function NewOutboundModal({
   }
 
   function handleConfirmedSubmit() {
-    startTransition(async () => {
-      const reserveResult = await reserveUnits({ serial_numbers: selectedSerials, user_id: userId });
-      if (reserveResult.errors.length > 0) {
-        setError(`Could not reserve: ${reserveResult.errors.map((e) => `${e.serial_number}: ${e.error}`).join(', ')}`);
-        setShowConfirm(false);
-        return;
+    // Build prices array with foolproof fallback (zeroed for donations)
+    const pricesArray = outboundPurpose === 'DONATION' ? [] : selectedSerials.map((sn) => {
+      let itemSku = serialSkuMap[sn];
+      if (!itemSku && sn.startsWith('NS-')) {
+        const parts = sn.split('-');
+        const timestampIndex = parts.findIndex((p, idx) => idx > 0 && /^\d{13}$/.test(p));
+        itemSku = timestampIndex > 0 ? parts.slice(1, timestampIndex).join('-') : parts[1] || '';
       }
+      const groupSku = itemSku || '_other';
 
-      // Build prices array with foolproof fallback (zeroed for donations)
-      const pricesArray = outboundPurpose === 'DONATION' ? [] : selectedSerials.map((sn) => {
-        let itemSku = serialSkuMap[sn];
-        if (!itemSku && sn.startsWith('NS-')) {
-          const parts = sn.split('-');
-          const timestampIndex = parts.findIndex((p, idx) => idx > 0 && /^\d{13}$/.test(p));
-          itemSku = timestampIndex > 0 ? parts.slice(1, timestampIndex).join('-') : parts[1] || '';
-        }
-        const groupSku = itemSku || '_other';
-
-        let price = parseFloat(itemPrices[sn] || '');
-        if (isNaN(price)) {
-          const unitInput = parseFloat(bulkUnitInput[groupSku] || bulkPriceInput[groupSku] || '');
-          if (!isNaN(unitInput) && unitInput > 0) {
-            price = unitInput;
+      let price = parseFloat(itemPrices[sn] || '');
+      if (isNaN(price)) {
+        const unitInput = parseFloat(bulkUnitInput[groupSku] || bulkPriceInput[groupSku] || '');
+        if (!isNaN(unitInput) && unitInput > 0) {
+          price = unitInput;
+        } else {
+          const totalInput = parseFloat(bulkTotalInput[groupSku] || '');
+          const countInGroup = selectedSerials.filter(
+            (s) => (serialSkuMap[s] || (s.startsWith('NS-') ? (s.split('-')[1] || '') : '')) === itemSku
+          ).length;
+          if (!isNaN(totalInput) && countInGroup > 0) {
+            price = Math.round((totalInput / countInGroup) * 100) / 100;
           } else {
-            const totalInput = parseFloat(bulkTotalInput[groupSku] || '');
-            const countInGroup = selectedSerials.filter(
-              (s) => (serialSkuMap[s] || (s.startsWith('NS-') ? (s.split('-')[1] || '') : '')) === itemSku
-            ).length;
-            if (!isNaN(totalInput) && countInGroup > 0) {
-              price = Math.round((totalInput / countInGroup) * 100) / 100;
-            } else {
-              const prod = products.find((p) => p.sku === groupSku);
-              if (prod?.retail_price != null) {
-                price = prod.retail_price;
-              }
+            const prod = products.find((p) => p.sku === groupSku);
+            if (prod?.retail_price != null) {
+              price = prod.retail_price;
             }
           }
         }
+      }
 
-        return {
-          serial_number: sn,
-          sale_price: isNaN(price) ? 0 : price,
-        };
-      }).filter((p) => p.sale_price > 0);
+      return {
+        serial_number: sn,
+        sale_price: isNaN(price) ? 0 : price,
+      };
+    }).filter((p) => p.sale_price > 0);
 
-      const result = await createOutboundTransaction({
-        route: route as 'TB' | 'B2B' | 'B2C',
-        from_location_id: fromLocationId,
-        to_location_id: toLocationId || undefined,
-        serial_numbers: selectedSerials,
-        user_id: userId,
-        notes: notes || undefined,
-        customer_name: (route === 'B2B' || route === 'B2C' || outboundPurpose === 'DONATION') ? customerName.trim() : undefined,
-        sales_manager: outboundPurpose === 'DONATION' ? (salesManager.trim() || 'CSR / Donations Team') : (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
-        sold_at: soldAt || undefined,
-        is_donation: outboundPurpose === 'DONATION',
-        donation_program: outboundPurpose === 'DONATION' ? donationProgram.trim() : undefined,
-        item_prices: outboundPurpose === 'DONATION' ? undefined : ((route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined),
-      });
-      if (result.error) { setError(result.error); setShowConfirm(false); return; }
-      setShowConfirm(false);
-      onSuccess();
+    const fromLocObj = locations.find((l) => l.id === fromLocationId);
+    const toLocObj = locations.find((l) => l.id === toLocationId);
+
+    // Close modal immediately and let background worker handle batching with live progress
+    setShowConfirm(false);
+    onClose();
+
+    startOutboundJob({
+      route: route as 'TB' | 'B2B' | 'B2C',
+      fromLocationId,
+      toLocationId: toLocationId || undefined,
+      fromLocationName: fromLocObj?.name || 'Main Warehouse',
+      toLocationName: toLocObj?.name || (outboundPurpose === 'DONATION' ? customerName.trim() : (customerName.trim() || 'Destination Branch')),
+      serials: selectedSerials,
+      userId,
+      notes: notes || undefined,
+      customerName: (route === 'B2B' || route === 'B2C' || outboundPurpose === 'DONATION') ? customerName.trim() : undefined,
+      salesManager: outboundPurpose === 'DONATION' ? (salesManager.trim() || 'CSR / Donations Team') : (route === 'B2B' || route === 'B2C') ? salesManager.trim() : undefined,
+      soldAt: soldAt || undefined,
+      isDonation: outboundPurpose === 'DONATION',
+      donationProgram: outboundPurpose === 'DONATION' ? donationProgram.trim() : undefined,
+      itemPrices: outboundPurpose === 'DONATION' ? undefined : ((route === 'B2B' || route === 'B2C') && pricesArray.length > 0 ? pricesArray : undefined),
+      onComplete: () => {
+        onSuccess();
+      },
     });
   }
 
@@ -2011,6 +2014,7 @@ function NewOutboundModal({
 // ── Main Page ─────────────────────────────────────────────────
 export default function OutboundPage() {
   const { isViewer } = useUser();
+  const { getActiveProgress, activeJobs } = useOutboundProgress();
   const [transactions, setTransactions] = useState<OutboundSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2156,6 +2160,7 @@ export default function OutboundPage() {
         sales_manager,
         is_donation,
         donation_program,
+        total_units_ordered,
         from_loc:locations!from_location_id(name),
         to_loc:locations!to_location_id(name),
         profiles(full_name),
@@ -2202,6 +2207,7 @@ export default function OutboundPage() {
           to_name: t.to_loc?.name || t.customer_name || (t.is_donation ? 'Donation Recipient' : 'Customer / B2B'),
           user_name: t.profiles?.full_name || 'System',
           item_count: items.length,
+          total_units_ordered: t.total_units_ordered ?? null,
           sku,
           model_name: modelName,
           has_power_station: hasPowerStation,
@@ -2259,6 +2265,16 @@ export default function OutboundPage() {
   }
 
   useEffect(() => { fetchTransactions(); }, []);
+
+  // Live refetch while background outbound batches are committing
+  useEffect(() => {
+    const hasActiveJobs = activeJobs.some((j) => j.status === 'processing');
+    if (!hasActiveJobs) return;
+    const interval = setInterval(() => {
+      fetchTransactions();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [activeJobs]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -2721,6 +2737,21 @@ export default function OutboundPage() {
                 {paginatedTxns.map((txn) => {
                   const route = routeConfig[txn.route] || { label: txn.route, color: 'bg-slate-100 text-slate-700', icon: null };
                   const needsVerify = !txn.verified && (txn.route === 'B2B' || txn.route === 'B2C');
+
+                  // Identify outbounds from the Main Warehouse to a branch (User requirement)
+                  const isWarehouseToBranch = txn.route === 'TB';
+                  const activeJob = getActiveProgress(txn.id);
+                  const totalTarget = (activeJob?.totalUnits && activeJob.totalUnits > 0)
+                    ? activeJob.totalUnits
+                    : (txn.total_units_ordered && txn.total_units_ordered > 0)
+                    ? txn.total_units_ordered
+                    : txn.item_count;
+                  const currentUnits = activeJob ? activeJob.processedUnits : txn.item_count;
+                  const isDispatching = isWarehouseToBranch && !txn.verified && (
+                    (activeJob && activeJob.status === 'processing') ||
+                    (txn.total_units_ordered != null && txn.total_units_ordered > 0 && txn.item_count < txn.total_units_ordered)
+                  );
+                  const progressPercent = totalTarget > 0 ? Math.round((currentUnits / totalTarget) * 100) : 100;
                   return (
                     <tr
                       key={txn.id}
@@ -2790,6 +2821,19 @@ export default function OutboundPage() {
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             {txn.route === 'TB' ? 'Stock Delivered' : txn.is_donation ? 'Donated & Verified' : 'Verified'}
                           </span>
+                        ) : isDispatching ? (
+                          <div className="flex flex-col gap-1 min-w-[135px]" title={`${currentUnits} of ${totalTarget} units dispatched (${progressPercent}%)`}>
+                            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200/90 rounded-full px-2.5 py-1 shadow-2xs">
+                              <Loader2 className="w-3.5 h-3.5 text-sky-600 animate-spin" />
+                              <span>{progressPercent}% Dispatching</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200/80">
+                              <div
+                                className="bg-gradient-to-r from-sky-500 to-indigo-600 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
+                              />
+                            </div>
+                          </div>
                         ) : txn.route === 'TB' ? (
                           isViewer ? (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200/50 rounded-full px-2.5 py-1">
@@ -2834,9 +2878,24 @@ export default function OutboundPage() {
                         )}
                       </td>
                       <td className="p-4 text-center">
-                        <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg font-mono text-xs">
-                          {txn.item_count}
-                        </span>
+                        {isWarehouseToBranch && (isDispatching || (txn.total_units_ordered != null && txn.total_units_ordered > 0)) ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className={`font-bold px-2.5 py-1 rounded-lg font-mono text-xs border ${
+                              isDispatching
+                                ? 'text-sky-900 bg-sky-50 border-sky-200/80 shadow-2xs'
+                                : 'text-slate-900 bg-slate-100 border-slate-200/60'
+                            }`}>
+                              {currentUnits.toLocaleString()} / {totalTarget.toLocaleString()}
+                            </span>
+                            <span className={`text-[10px] font-bold mt-0.5 ${isDispatching ? 'text-sky-600' : 'text-slate-400'}`}>
+                              {progressPercent}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-lg font-mono text-xs">
+                            {txn.item_count.toLocaleString()}
+                          </span>
+                        )}
                       </td>
                       <td className="p-4 text-right">
                         <div className="flex flex-col items-end">
