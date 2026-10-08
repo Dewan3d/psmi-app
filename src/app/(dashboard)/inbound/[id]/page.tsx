@@ -30,6 +30,7 @@ import {
 import { getInboundTransaction, assignSerialNumber, bulkAssignSerials, deleteInboundTransaction } from '@/actions/inbound';
 import { createClient } from '@/lib/supabase/client';
 import ConfirmModal from '../../components/confirm-modal';
+import InboundSerialConfirmModal from '../../components/inbound-serial-confirm-modal';
 import FeedbackModal from '../../components/feedback-modal';
 import InboundDeleteBlockedModal from '../../components/inbound-delete-blocked-modal';
 import { useUser } from '../../components/user-context';
@@ -72,11 +73,17 @@ function SerialAssignmentRow({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const showSkuPicker = skuOptions.length > 1;
 
-  function handleAssign() {
+  function handleAssignClick() {
     if (!inputSerial.trim()) return;
     setError(null);
+    setShowConfirm(true);
+  }
+
+  function handleExecuteAssign() {
+    if (!inputSerial.trim()) return;
     startTransition(async () => {
       const result = await assignSerialNumber({
         placeholder_serial: placeholder,
@@ -84,6 +91,7 @@ function SerialAssignmentRow({
         transaction_id: transactionId,
         sku_override: selectedSku !== defaultSku ? selectedSku : undefined,
       });
+      setShowConfirm(false);
       if (result.error) {
         setError(result.error);
       } else {
@@ -112,7 +120,7 @@ function SerialAssignmentRow({
             type="text"
             value={inputSerial}
             onChange={(e) => setInputSerial(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAssign()}
+            onKeyDown={(e) => e.key === 'Enter' && handleAssignClick()}
             placeholder="Scan or type serial number…"
             className="flex-1 bg-transparent text-sm font-mono placeholder:text-slate-400 focus:outline-none"
           />
@@ -132,7 +140,7 @@ function SerialAssignmentRow({
           </select>
         )}
         <button
-          onClick={handleAssign}
+          onClick={handleAssignClick}
           disabled={isPending || !inputSerial.trim()}
           className="px-3 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex-shrink-0"
         >
@@ -142,6 +150,15 @@ function SerialAssignmentRow({
       {error && (
         <p className="text-xs text-red-600 pl-2">{error}</p>
       )}
+
+      <InboundSerialConfirmModal
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        onConfirm={handleExecuteAssign}
+        isLoading={isPending}
+        serials={inputSerial.trim() ? [inputSerial.trim()] : []}
+        sku={selectedSku}
+      />
     </div>
   );
 }
@@ -166,6 +183,7 @@ function BulkAssignPanel({
   const [text, setText] = useState('');
   const [selectedSku, setSelectedSku] = useState(defaultSku);
   const [isPending, startTransition] = useTransition();
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [result, setResult] = useState<{ assigned: number; pending_remaining?: number; errors: { serial: string; error: string }[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const showSkuPicker = skuOptions.length > 1;
@@ -209,7 +227,13 @@ function BulkAssignPanel({
     e.target.value = '';
   }
 
-  function handleBulkAssign() {
+  function handleBulkAssignClick() {
+    const serials = text.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
+    if (serials.length === 0) return;
+    setShowConfirmModal(true);
+  }
+
+  function handleExecuteBulkAssign() {
     const serials = text.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
     if (serials.length === 0) return;
 
@@ -220,6 +244,7 @@ function BulkAssignPanel({
         sku_override: selectedSku !== defaultSku ? selectedSku : undefined,
       });
 
+      setShowConfirmModal(false);
       setResult(res);
 
       if (res.assigned > 0) {
@@ -411,7 +436,7 @@ function BulkAssignPanel({
                 </button>
               )}
               <button
-                onClick={handleBulkAssign}
+                onClick={handleBulkAssignClick}
                 disabled={isPending || enteredCount === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
               >
@@ -420,6 +445,16 @@ function BulkAssignPanel({
               </button>
             </div>
           </div>
+
+          <InboundSerialConfirmModal
+            isOpen={showConfirmModal}
+            onClose={() => setShowConfirmModal(false)}
+            onConfirm={handleExecuteBulkAssign}
+            isLoading={isPending}
+            serials={text.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)}
+            sku={selectedSku}
+            confirmButtonText={`Yes, Upload ${enteredCount} Serials`}
+          />
 
           {result && (
             <div className={`p-3.5 rounded-xl text-sm border ${result.errors.length === 0 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>

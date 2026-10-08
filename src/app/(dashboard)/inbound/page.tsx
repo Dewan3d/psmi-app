@@ -46,6 +46,7 @@ import { createClient } from '@/lib/supabase/client';
 
 import ComboboxSelect, { ComboboxOption } from '../components/combobox-select';
 import ConfirmModal from '../components/confirm-modal';
+import InboundSerialConfirmModal from '../components/inbound-serial-confirm-modal';
 import FeedbackModal from '../components/feedback-modal';
 import InboundDeleteBlockedModal from '../components/inbound-delete-blocked-modal';
 import { ModalWrapper } from '../components/modal-wrapper';
@@ -746,39 +747,47 @@ function NewInboundModal({
         </form>
       </div>
 
-      <ConfirmModal
-        isOpen={showConfirm}
-        onClose={() => setShowConfirm(false)}
-        onConfirm={handleConfirmedSubmit}
-        isLoading={isPending}
-        title="Confirm Inbound Receipt"
-        message={
-          <div className="space-y-2">
-            <p className="text-slate-600 font-medium">Review inbound shipment details:</p>
-            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
-              <p>
-                <strong className="text-slate-900">Destination:</strong>{' '}
-                {locations.find((l) => l.id === locationId)?.name || 'Selected Location'}
-              </p>
-              {mode === 'model-group' ? (
+      {mode === 'serials' ? (
+        <InboundSerialConfirmModal
+          isOpen={showConfirm}
+          onClose={() => setShowConfirm(false)}
+          onConfirm={handleConfirmedSubmit}
+          isLoading={isPending}
+          serials={serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)}
+          sku={sku}
+          modelName={selectedProd?.model_name}
+          locationName={locations.find((l) => l.id === locationId)?.name}
+        />
+      ) : (
+        <ConfirmModal
+          isOpen={showConfirm}
+          onClose={() => setShowConfirm(false)}
+          onConfirm={handleConfirmedSubmit}
+          isLoading={isPending}
+          title="Confirm Inbound Receipt"
+          message={
+            <div className="space-y-2">
+              <p className="text-slate-600 font-medium">Review inbound shipment details:</p>
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs space-y-1 text-slate-700">
                 <p>
-                  <strong className="text-slate-900">Quantity:</strong> {quantity} units ({selectedModelGroup})
+                  <strong className="text-slate-900">Destination:</strong>{' '}
+                  {locations.find((l) => l.id === locationId)?.name || 'Selected Location'}
                 </p>
-              ) : mode === 'quantity' ? (
-                <p>
-                  <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} ({quantity} units)
-                </p>
-              ) : (
-                <p>
-                  <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} (
-                  {serialsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length} serial numbers)
-                </p>
-              )}
+                {mode === 'model-group' ? (
+                  <p>
+                    <strong className="text-slate-900">Quantity:</strong> {quantity} units ({selectedModelGroup})
+                  </p>
+                ) : (
+                  <p>
+                    <strong className="text-slate-900">Product:</strong> {selectedProd?.model_name || sku} ({quantity} units)
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        }
-        confirmText="Yes, Inbound Items"
-      />
+          }
+          confirmText="Yes, Inbound Items"
+        />
+      )}
     </ModalWrapper>
   );
 }
