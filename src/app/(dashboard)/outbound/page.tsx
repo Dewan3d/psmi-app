@@ -496,11 +496,23 @@ function NewOutboundModal({
       setError('Please enter a valid quantity');
       return;
     }
+    const skuExcludedSerials = selectedSerials.filter((sn) => {
+      const sSku = serialSkuMap[sn];
+      if (sSku) return sSku === targetSku;
+      if (sn.startsWith('NS-')) {
+        const parts = sn.split('-');
+        const timestampIndex = parts.findIndex((p, idx) => idx > 0 && /^\d{13}$/.test(p));
+        const derivedSku = timestampIndex > 0 ? parts.slice(1, timestampIndex).join('-') : parts[1] || '';
+        return derivedSku === targetSku;
+      }
+      return false;
+    });
+
     const result = await getFifoSerialsForQuantity({
       sku: targetSku,
       location_id: fromLocationId,
       quantity: qtyToAdd,
-      exclude_serials: selectedSerials,
+      exclude_serials: skuExcludedSerials,
     });
     if (result.error) {
       setError(result.error);

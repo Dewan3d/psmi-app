@@ -279,39 +279,66 @@ export async function getFifoSerialsForQuantity(data: {
 }): Promise<{ serial_numbers: string[]; error: string | null }> {
   const supabase = await createClient();
 
-  // Find oldest available units (FIFO)
-  let query = supabase
-    .from('inventory_units')
-    .select('serial_number')
-    .eq('sku', data.sku)
-    .eq('location_id', data.location_id)
-    .in('status', ['IN_WAREHOUSE', 'IN_BRANCH'])
-    .order('upload_date', { ascending: true });
+  const excludeSet = new Set((data.exclude_serials || []).filter(Boolean));
+  // If excluding a small number of serials (<= 30), PostgREST URL filter is compact and fast.
+  // When excluding more, PostgREST query URLs exceed the 16KB header limit causing 400 Bad Request.
+  // So we page through available units in memory to safely collect required FIFO units.
+  const collectedSerials: string[] = [];
+  const pageSize = Math.max(100, Math.min(1000, data.quantity + excludeSet.size));
+  let from = 0;
+  let hasMore = true;
 
-  if (data.exclude_serials && data.exclude_serials.length > 0) {
-    const cleanExcludes = data.exclude_serials.filter(Boolean);
-    if (cleanExcludes.length > 0) {
-      // Exclude already allocated units
+  while (hasMore && collectedSerials.length < data.quantity) {
+    let query = supabase
+      .from('inventory_units')
+      .select('serial_number')
+      .eq('sku', data.sku)
+      .eq('location_id', data.location_id)
+      .in('status', ['IN_WAREHOUSE', 'IN_BRANCH'])
+      .order('upload_date', { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (excludeSet.size > 0 && excludeSet.size <= 30) {
+      const cleanExcludes = Array.from(excludeSet);
       query = query.not('serial_number', 'in', `(${cleanExcludes.map((s) => `"${s}"`).join(',')})`);
+    }
+
+    const { data: units, error } = await query;
+
+    if (error) {
+      return { serial_numbers: [], error: error.message };
+    }
+
+    if (!units || units.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    for (const u of units) {
+      if (!excludeSet.has(u.serial_number)) {
+        collectedSerials.push(u.serial_number);
+        if (collectedSerials.length >= data.quantity) {
+          break;
+        }
+      }
+    }
+
+    if (units.length < pageSize) {
+      hasMore = false;
+    } else {
+      from += pageSize;
     }
   }
 
-  const { data: units, error } = await query.limit(data.quantity);
-
-  if (error) {
-    return { serial_numbers: [], error: error.message };
-  }
-
-  if (!units || units.length < data.quantity) {
-    const available = units ? units.length : 0;
+  if (collectedSerials.length < data.quantity) {
     return {
       serial_numbers: [],
-      error: `Insufficient stock for SKU "${data.sku}". Requested: ${data.quantity}, Available: ${available}.`,
+      error: `Insufficient stock for SKU "${data.sku}". Requested: ${data.quantity}, Available: ${collectedSerials.length}.`,
     };
   }
 
   return {
-    serial_numbers: units.map((u) => u.serial_number),
+    serial_numbers: collectedSerials,
     error: null,
   };
 }
